@@ -1,0 +1,383 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot generator="Robot 7.3.2 (Python 3.12.11 on linux)" generated="2025-08-16T12:11:02.060431" rpa="false" schemaversion="5">
+<suite id="s1" name="Tests" source="/work/tests">
+<suite id="s1-s1" name="Listservice" source="/work/tests/listservice.robot">
+<test id="s1-s1-t1" name="Healthcheck" line="9">
+<kw name="GET Health" owner="keywords">
+<kw name="GET" owner="RequestsLibrary">
+<msg time="2025-08-16T12:11:02.090723" level="FAIL">MissingSchema: Invalid URL '/health': No scheme supplied. Perhaps you meant https:///health?</msg>
+<var>${resp}</var>
+<arg>${base_url}/health</arg>
+<arg>timeout=${TIMEOUT}</arg>
+<doc>Sends a GET request.</doc>
+<status status="FAIL" start="2025-08-16T12:11:02.090258" elapsed="0.000935">MissingSchema: Invalid URL '/health': No scheme supplied. Perhaps you meant https:///health?</status>
+</kw>
+<return>
+<value>${resp}</value>
+<status status="NOT RUN" start="2025-08-16T12:11:02.091230" elapsed="0.000010"/>
+</return>
+<var>${resp}</var>
+<arg>${BASE_URL}</arg>
+<status status="FAIL" start="2025-08-16T12:11:02.090039" elapsed="0.001243">MissingSchema: Invalid URL '/health': No scheme supplied. Perhaps you meant https:///health?</status>
+</kw>
+<kw name="Response Should Be OK" owner="keywords">
+<arg>${resp}</arg>
+<status status="NOT RUN" start="2025-08-16T12:11:02.091336" elapsed="0.000008"/>
+</kw>
+<status status="FAIL" start="2025-08-16T12:11:02.089670" elapsed="0.001732">MissingSchema: Invalid URL '/health': No scheme supplied. Perhaps you meant https:///health?</status>
+</test>
+<test id="s1-s1-t2" name="GET Head Returns First N" line="13">
+<kw name="GET Head" owner="keywords">
+<kw name="Create Dictionary" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.091925" level="INFO">${params} = {'list': 'a,b,c,d', 'count': '2'}</msg>
+<var>${params}</var>
+<arg>list=${list_csv}</arg>
+<arg>count=${count}</arg>
+<doc>Creates and returns a dictionary based on the given ``items``.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.091820" elapsed="0.000114"/>
+</kw>
+<kw name="GET" owner="RequestsLibrary">
+<msg time="2025-08-16T12:11:02.092095" level="FAIL">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</msg>
+<var>${resp}</var>
+<arg>${base_url}/v1/lists/head</arg>
+<arg>params=${params}</arg>
+<arg>timeout=${TIMEOUT}</arg>
+<doc>Sends a GET request.</doc>
+<status status="FAIL" start="2025-08-16T12:11:02.091965" elapsed="0.000279">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</status>
+</kw>
+<return>
+<value>${resp}</value>
+<status status="NOT RUN" start="2025-08-16T12:11:02.092264" elapsed="0.000006"/>
+</return>
+<var>${resp}</var>
+<arg>${BASE_URL}</arg>
+<arg>a,b,c,d</arg>
+<arg>2</arg>
+<status status="FAIL" start="2025-08-16T12:11:02.091704" elapsed="0.000592">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</status>
+</kw>
+<kw name="Response Should Be OK" owner="keywords">
+<arg>${resp}</arg>
+<status status="NOT RUN" start="2025-08-16T12:11:02.092336" elapsed="0.000008"/>
+</kw>
+<kw name="Result Should Equal" owner="keywords">
+<arg>${resp}</arg>
+<arg>a</arg>
+<arg>b</arg>
+<status status="NOT RUN" start="2025-08-16T12:11:02.092377" elapsed="0.000014"/>
+</kw>
+<status status="FAIL" start="2025-08-16T12:11:02.091481" elapsed="0.000948">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</status>
+</test>
+<test id="s1-s1-t3" name="POST Tail Returns Remaining" line="18">
+<kw name="Create List" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.092654" level="INFO">${items} = ['a', 'b', 'c', 'd']</msg>
+<var>${items}</var>
+<arg>a</arg>
+<arg>b</arg>
+<arg>c</arg>
+<arg>d</arg>
+<doc>Returns a list containing given items.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.092590" elapsed="0.000115"/>
+</kw>
+<kw name="POST Tail" owner="keywords">
+<kw name="Create Dictionary" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.092896" level="INFO">${body} = {'list': ['a', 'b', 'c', 'd'], 'count': '2'}</msg>
+<var>${body}</var>
+<arg>list=${list_items}</arg>
+<arg>count=${count}</arg>
+<doc>Creates and returns a dictionary based on the given ``items``.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.092829" elapsed="0.000074"/>
+</kw>
+<kw name="Create Dictionary" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.092968" level="INFO">${headers} = {'content-type': 'application/json'}</msg>
+<var>${headers}</var>
+<arg>content-type=application/json</arg>
+<doc>Creates and returns a dictionary based on the given ``items``.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.092931" elapsed="0.000043"/>
+</kw>
+<kw name="POST" owner="RequestsLibrary">
+<msg time="2025-08-16T12:11:02.093179" level="FAIL">MissingSchema: Invalid URL '/v1/lists/tail': No scheme supplied. Perhaps you meant https:///v1/lists/tail?</msg>
+<var>${resp}</var>
+<arg>${base_url}/v1/lists/tail</arg>
+<arg>json=${body}</arg>
+<arg>headers=${headers}</arg>
+<arg>timeout=${TIMEOUT}</arg>
+<doc>Sends a POST request.</doc>
+<status status="FAIL" start="2025-08-16T12:11:02.092998" elapsed="0.000319">MissingSchema: Invalid URL '/v1/lists/tail': No scheme supplied. Perhaps you meant https:///v1/lists/tail?</status>
+</kw>
+<return>
+<value>${resp}</value>
+<status status="NOT RUN" start="2025-08-16T12:11:02.093335" elapsed="0.000005"/>
+</return>
+<var>${resp}</var>
+<arg>${BASE_URL}</arg>
+<arg>${items}</arg>
+<arg>2</arg>
+<status status="FAIL" start="2025-08-16T12:11:02.092748" elapsed="0.000614">MissingSchema: Invalid URL '/v1/lists/tail': No scheme supplied. Perhaps you meant https:///v1/lists/tail?</status>
+</kw>
+<kw name="Response Should Be OK" owner="keywords">
+<arg>${resp}</arg>
+<status status="NOT RUN" start="2025-08-16T12:11:02.093407" elapsed="0.000007"/>
+</kw>
+<kw name="Result Should Equal" owner="keywords">
+<arg>${resp}</arg>
+<arg>c</arg>
+<arg>d</arg>
+<status status="NOT RUN" start="2025-08-16T12:11:02.093443" elapsed="0.000005"/>
+</kw>
+<status status="FAIL" start="2025-08-16T12:11:02.092489" elapsed="0.000990">MissingSchema: Invalid URL '/v1/lists/tail': No scheme supplied. Perhaps you meant https:///v1/lists/tail?</status>
+</test>
+<test id="s1-s1-t4" name="Invalid Count (GET)" line="24">
+<kw name="GET Head" owner="keywords">
+<kw name="Create Dictionary" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.093812" level="INFO">${params} = {'list': 'a,b', 'count': '5'}</msg>
+<var>${params}</var>
+<arg>list=${list_csv}</arg>
+<arg>count=${count}</arg>
+<doc>Creates and returns a dictionary based on the given ``items``.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.093750" elapsed="0.000069"/>
+</kw>
+<kw name="GET" owner="RequestsLibrary">
+<msg time="2025-08-16T12:11:02.093951" level="FAIL">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</msg>
+<var>${resp}</var>
+<arg>${base_url}/v1/lists/head</arg>
+<arg>params=${params}</arg>
+<arg>timeout=${TIMEOUT}</arg>
+<doc>Sends a GET request.</doc>
+<status status="FAIL" start="2025-08-16T12:11:02.093845" elapsed="0.000239">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</status>
+</kw>
+<return>
+<value>${resp}</value>
+<status status="NOT RUN" start="2025-08-16T12:11:02.094102" elapsed="0.000005"/>
+</return>
+<var>${resp}</var>
+<arg>${BASE_URL}</arg>
+<arg>a,b</arg>
+<arg>5</arg>
+<status status="FAIL" start="2025-08-16T12:11:02.093636" elapsed="0.000491">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</status>
+</kw>
+<kw name="Response Should Be Bad Request" owner="keywords">
+<arg>${resp}</arg>
+<status status="NOT RUN" start="2025-08-16T12:11:02.094163" elapsed="0.000006"/>
+</kw>
+<kw name="Error Should Contain" owner="keywords">
+<arg>${resp}</arg>
+<arg>cannot exceed</arg>
+<status status="NOT RUN" start="2025-08-16T12:11:02.094200" elapsed="0.000006"/>
+</kw>
+<status status="FAIL" start="2025-08-16T12:11:02.093532" elapsed="0.000705">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</status>
+</test>
+<test id="s1-s1-t5" name="Invalid List Type (POST)" line="29">
+<kw name="Create List" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.094620" level="INFO">${bad} = ['1', '2', '3']</msg>
+<var>${bad}</var>
+<arg>1</arg>
+<arg>2</arg>
+<arg>3</arg>
+<doc>Returns a list containing given items.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.094547" elapsed="0.000083"/>
+</kw>
+<kw name="POST Tail" owner="keywords">
+<kw name="Create Dictionary" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.094835" level="INFO">${body} = {'list': ['1', '2', '3'], 'count': '1'}</msg>
+<var>${body}</var>
+<arg>list=${list_items}</arg>
+<arg>count=${count}</arg>
+<doc>Creates and returns a dictionary based on the given ``items``.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.094767" elapsed="0.000075"/>
+</kw>
+<kw name="Create Dictionary" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.094907" level="INFO">${headers} = {'content-type': 'application/json'}</msg>
+<var>${headers}</var>
+<arg>content-type=application/json</arg>
+<doc>Creates and returns a dictionary based on the given ``items``.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.094870" elapsed="0.000042"/>
+</kw>
+<kw name="POST" owner="RequestsLibrary">
+<msg time="2025-08-16T12:11:02.095067" level="FAIL">MissingSchema: Invalid URL '/v1/lists/tail': No scheme supplied. Perhaps you meant https:///v1/lists/tail?</msg>
+<var>${resp}</var>
+<arg>${base_url}/v1/lists/tail</arg>
+<arg>json=${body}</arg>
+<arg>headers=${headers}</arg>
+<arg>timeout=${TIMEOUT}</arg>
+<doc>Sends a POST request.</doc>
+<status status="FAIL" start="2025-08-16T12:11:02.094936" elapsed="0.000282">MissingSchema: Invalid URL '/v1/lists/tail': No scheme supplied. Perhaps you meant https:///v1/lists/tail?</status>
+</kw>
+<return>
+<value>${resp}</value>
+<status status="NOT RUN" start="2025-08-16T12:11:02.095239" elapsed="0.000005"/>
+</return>
+<var>${resp}</var>
+<arg>${BASE_URL}</arg>
+<arg>${bad}</arg>
+<arg>1</arg>
+<status status="FAIL" start="2025-08-16T12:11:02.094682" elapsed="0.000587">MissingSchema: Invalid URL '/v1/lists/tail': No scheme supplied. Perhaps you meant https:///v1/lists/tail?</status>
+</kw>
+<kw name="Response Should Be Bad Request" owner="keywords">
+<arg>${resp}</arg>
+<status status="NOT RUN" start="2025-08-16T12:11:02.095309" elapsed="0.000007"/>
+</kw>
+<kw name="Error Should Contain" owner="keywords">
+<arg>${resp}</arg>
+<arg>array of strings</arg>
+<status status="NOT RUN" start="2025-08-16T12:11:02.095347" elapsed="0.000007"/>
+</kw>
+<status status="FAIL" start="2025-08-16T12:11:02.094441" elapsed="0.000952">MissingSchema: Invalid URL '/v1/lists/tail': No scheme supplied. Perhaps you meant https:///v1/lists/tail?</status>
+</test>
+<doc>API tests for ListService (head/tail). Works against local or deployed base URL.</doc>
+<status status="FAIL" start="2025-08-16T12:11:02.067849" elapsed="0.027686"/>
+</suite>
+<suite id="s1-s2" name="Smoke" source="/work/tests/smoke.robot">
+<test id="s1-s2-t1" name="Healthcheck (absolute URL)" line="11">
+<kw name="GET" owner="RequestsLibrary">
+<msg time="2025-08-16T12:11:02.096543" level="FAIL">MissingSchema: Invalid URL '/health': No scheme supplied. Perhaps you meant https:///health?</msg>
+<var>${resp}</var>
+<arg>${BASE_URL}/health</arg>
+<arg>timeout=${TIMEOUT}</arg>
+<doc>Sends a GET request.</doc>
+<status status="FAIL" start="2025-08-16T12:11:02.096400" elapsed="0.000282">MissingSchema: Invalid URL '/health': No scheme supplied. Perhaps you meant https:///health?</status>
+</kw>
+<kw name="Should Be Equal As Integers" owner="BuiltIn">
+<arg>${resp.status_code}</arg>
+<arg>200</arg>
+<doc>Fails if objects are unequal after converting them to integers.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.096713" elapsed="0.000006"/>
+</kw>
+<kw name="Evaluate" owner="BuiltIn">
+<var>${data}</var>
+<arg>$resp.json()</arg>
+<doc>Evaluates the given expression in Python and returns the result.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.096743" elapsed="0.000004"/>
+</kw>
+<kw name="Dictionary Should Contain Item" owner="Collections">
+<arg>${data}</arg>
+<arg>status</arg>
+<arg>ok</arg>
+<doc>An item of ``key`` / ``value`` must be found in a ``dictionary``.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.096765" elapsed="0.000004"/>
+</kw>
+<status status="FAIL" start="2025-08-16T12:11:02.096290" elapsed="0.000511">MissingSchema: Invalid URL '/health': No scheme supplied. Perhaps you meant https:///health?</status>
+</test>
+<test id="s1-s2-t2" name="GET Head Returns First N (absolute URL)" line="17">
+<kw name="Create Dictionary" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.097042" level="INFO">${params} = {'list': 'a,b,c,d', 'count': '2'}</msg>
+<var>${params}</var>
+<arg>list=a,b,c,d</arg>
+<arg>count=2</arg>
+<doc>Creates and returns a dictionary based on the given ``items``.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.096953" elapsed="0.000098"/>
+</kw>
+<kw name="GET" owner="RequestsLibrary">
+<msg time="2025-08-16T12:11:02.097199" level="FAIL">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</msg>
+<var>${resp}</var>
+<arg>${BASE_URL}/v1/lists/head</arg>
+<arg>params=${params}</arg>
+<arg>timeout=${TIMEOUT}</arg>
+<doc>Sends a GET request.</doc>
+<status status="FAIL" start="2025-08-16T12:11:02.097087" elapsed="0.000245">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</status>
+</kw>
+<kw name="Should Be Equal As Integers" owner="BuiltIn">
+<arg>${resp.status_code}</arg>
+<arg>200</arg>
+<doc>Fails if objects are unequal after converting them to integers.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.097361" elapsed="0.000006"/>
+</kw>
+<kw name="Evaluate" owner="BuiltIn">
+<var>${data}</var>
+<arg>$resp.json()</arg>
+<doc>Evaluates the given expression in Python and returns the result.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.097399" elapsed="0.000005"/>
+</kw>
+<kw name="Get From Dictionary" owner="Collections">
+<var>${got}</var>
+<arg>${data}</arg>
+<arg>result</arg>
+<doc>Returns a value from the given ``dictionary`` based on the given ``key``.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.097424" elapsed="0.000004"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${got}</arg>
+<arg>[ "a", "b" ]</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.097450" elapsed="0.000004"/>
+</kw>
+<status status="FAIL" start="2025-08-16T12:11:02.096852" elapsed="0.000631">MissingSchema: Invalid URL '/v1/lists/head': No scheme supplied. Perhaps you meant https:///v1/lists/head?</status>
+</test>
+<test id="s1-s2-t3" name="POST Tail Returns Remaining (absolute URL)" line="25">
+<kw name="Create List" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.097665" level="INFO">${L} = ['a', 'b', 'c', 'd']</msg>
+<var>${L}</var>
+<arg>a</arg>
+<arg>b</arg>
+<arg>c</arg>
+<arg>d</arg>
+<doc>Returns a list containing given items.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.097616" elapsed="0.000056"/>
+</kw>
+<kw name="Create Dictionary" owner="BuiltIn">
+<msg time="2025-08-16T12:11:02.097824" level="INFO">${body} = {'list': ['a', 'b', 'c', 'd'], 'count': '2'}</msg>
+<var>${body}</var>
+<arg>list=${L}</arg>
+<arg>count=2</arg>
+<doc>Creates and returns a dictionary based on the given ``items``.</doc>
+<status status="PASS" start="2025-08-16T12:11:02.097750" elapsed="0.000080"/>
+</kw>
+<kw name="${headers}= Create Dictionary">
+<msg time="2025-08-16T12:11:02.098276" level="FAIL">No keyword with name '${headers}= Create Dictionary' found.</msg>
+<arg>content-type=application/json</arg>
+<status status="FAIL" start="2025-08-16T12:11:02.098266" elapsed="0.000021">No keyword with name '${headers}= Create Dictionary' found.</status>
+</kw>
+<kw name="POST" owner="RequestsLibrary">
+<var>${resp}</var>
+<arg>${BASE_URL}/v1/lists/tail</arg>
+<arg>json=${body}</arg>
+<arg>headers=${headers}</arg>
+<arg>timeout=${TIMEOUT}</arg>
+<doc>Sends a POST request.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.098316" elapsed="0.000005"/>
+</kw>
+<kw name="Should Be Equal As Integers" owner="BuiltIn">
+<arg>${resp.status_code}</arg>
+<arg>200</arg>
+<doc>Fails if objects are unequal after converting them to integers.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.098343" elapsed="0.000004"/>
+</kw>
+<kw name="Evaluate" owner="BuiltIn">
+<var>${data}</var>
+<arg>$resp.json()</arg>
+<doc>Evaluates the given expression in Python and returns the result.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.098449" elapsed="0.000005"/>
+</kw>
+<kw name="Get From Dictionary" owner="Collections">
+<var>${got}</var>
+<arg>${data}</arg>
+<arg>result</arg>
+<doc>Returns a value from the given ``dictionary`` based on the given ``key``.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.098473" elapsed="0.000004"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>${got}</arg>
+<arg>[ "c", "d" ]</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="NOT RUN" start="2025-08-16T12:11:02.098497" elapsed="0.000004"/>
+</kw>
+<status status="FAIL" start="2025-08-16T12:11:02.097536" elapsed="0.001007">No keyword with name '${headers}= Create Dictionary' found.</status>
+</test>
+<status status="FAIL" start="2025-08-16T12:11:02.095713" elapsed="0.002902"/>
+</suite>
+<status status="FAIL" start="2025-08-16T12:11:02.060780" elapsed="0.038002"/>
+</suite>
+<statistics>
+<total>
+<stat pass="0" fail="8" skip="0">All Tests</stat>
+</total>
+<tag>
+</tag>
+<suite>
+<stat name="Tests" id="s1" pass="0" fail="8" skip="0">Tests</stat>
+<stat name="Listservice" id="s1-s1" pass="0" fail="5" skip="0">Tests.Listservice</stat>
+<stat name="Smoke" id="s1-s2" pass="0" fail="3" skip="0">Tests.Smoke</stat>
+</suite>
+</statistics>
+<errors>
+</errors>
+</robot>
