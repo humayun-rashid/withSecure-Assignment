@@ -1,6 +1,5 @@
 terraform {
   required_version = ">= 1.6"
-
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -11,6 +10,6 @@ terraform {
 
 provider "aws" {
   region  = var.region
-  # Use profile only if set (local dev). In CI, leave blank so OIDC creds are used.
+  # Use profile only if provided (local). In CI, leave empty so OIDC creds are used.
   profile = var.aws_profile != "" ? var.aws_profile : null
 }

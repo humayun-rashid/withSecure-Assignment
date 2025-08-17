@@ -24,8 +24,9 @@ module "alb" {
   vpc_id            = module.network.vpc_id
   public_subnet_ids = module.network.public_subnet_ids
 
-  target_port       = 8080       # matches Gunicorn
-  health_check_path = "/health"  # matches FastAPI
+  # Must match your container
+  target_port       = 8080
+  health_check_path = "/health"
 
   tags = local.tags
 }
@@ -36,7 +37,10 @@ module "ecs" {
   name   = local.name
   vpc_id = module.network.vpc_id
 
-  private_subnet_ids = module.network.public_subnet_ids # public in CI for internet access
+  # CI: place tasks in PUBLIC subnets for outbound internet via IGW
+  private_subnet_ids = module.network.public_subnet_ids
+
+  # Allow ingress only from ALB SG
   service_sg_ingress = [module.alb.alb_sg_id]
 
   container_image = var.container_image

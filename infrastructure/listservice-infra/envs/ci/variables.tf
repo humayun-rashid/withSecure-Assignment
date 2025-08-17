@@ -1,19 +1,20 @@
 variable "region" {
-  type        = string
   description = "AWS region for deployment"
+  type        = string
 }
 
 variable "aws_profile" {
+  description = "AWS CLI profile for local runs. Leave empty in CI."
   type        = string
-  description = "AWS CLI profile"
+  default     = ""
 }
 
 variable "env" {
-  type        = string
   description = "Environment name (ci, staging, prod)"
+  type        = string
 }
 
 variable "container_image" {
+  description = "Full container image (with tag or digest) to deploy"
   type        = string
-  description = "Container image (with tag or digest) to deploy"
 }
