@@ -1,0 +1,48 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:CreateRepository",
+        "ecr:DeleteRepository",
+        "ecr:DescribeRepositories",
+        "ecr:ListRepositories",
+        "ecr:GetRepositoryPolicy",
+        "ecr:SetRepositoryPolicy",
+        "ecr:DeleteRepositoryPolicy",
+        "ecr:PutLifecyclePolicy",
+        "ecr:GetLifecyclePolicy",
+        "ecr:GetLifecyclePolicyPreview",
+        "ecr:DeleteLifecyclePolicy",
+        "ecr:ListTagsForResource",
+        "ecr:TagResource",
+        "ecr:UntagResource"
+      ],
+      "Resource": "arn:aws:ecr:eu-central-1:920120424372:repository/listservice-global"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::tf-state-920120424372-eu-central-1",
+        "arn:aws:s3:::tf-state-920120424372-eu-central-1/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:DeleteItem"
+      ],
+      "Resource": "arn:aws:dynamodb:eu-central-1:920120424372:table/tf-state-lock"
+    }
+  ]
+}
