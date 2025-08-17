@@ -157,6 +157,54 @@ aws_cli iam put-role-policy --role-name "$ROLE_NAME" \
   --policy-document "file://${POL_ECR}"
 rm -f "$POL_ECR"
 
+# --- Inline Policy: CI Infra Access ---
+POL_CI_INFRA="$(mktemp)"
+cat > "$POL_CI_INFRA" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow",
+      "Action": [
+        "logs:ListTagsForResource",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "*"
+    },
+    { "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies"
+      ],
+      "Resource": "arn:aws:iam::${ACCOUNT_ID}:role/listservice-ci-*"
+    },
+    { "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:ListMetrics",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    { "Effect": "Allow",
+      "Action": [
+        "application-autoscaling:Describe*",
+        "application-autoscaling:List*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+EOF
+aws_cli iam put-role-policy --role-name "$ROLE_NAME" \
+  --policy-name CIInfraAccess \
+  --policy-document "file://${POL_CI_INFRA}"
+rm -f "$POL_CI_INFRA"
+
 ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}"
 echo
 echo "✅ Done."
