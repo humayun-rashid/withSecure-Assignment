@@ -163,25 +163,48 @@ jobs:
       - name: Get ALB DNS
         id: alb
         run: |
-          LB_ARN=$(aws ecs describe-services \
+          # Get the Target Group ARN attached to the ECS service
+          TG_ARN=$(aws ecs describe-services \
             --cluster "${{ env.CLUSTER }}" \
             --services "${{ env.SERVICE }}" \
-            --query 'services[0].loadBalancers[0].loadBalancerName' \
+            --query 'services[0].loadBalancers[0].targetGroupArn' \
             --output text)
+
+          if [ "$TG_ARN" = "None" ] || [ -z "$TG_ARN" ]; then
+            echo "❌ No Target Group attached to ECS service."
+            exit 1
+          fi
+
+          # Find the Load Balancer ARN from the target group
+          LB_ARN=$(aws elbv2 describe-target-groups \
+            --target-group-arns "$TG_ARN" \
+            --query 'TargetGroups[0].LoadBalancerArns[0]' \
+            --output text)
+
+          # Finally get the ALB DNS name
           ALB_DNS=$(aws elbv2 describe-load-balancers \
-            --names "$LB_ARN" \
+            --load-balancer-arns "$LB_ARN" \
             --query 'LoadBalancers[0].DNSName' \
             --output text)
+
           echo "alb_dns=$ALB_DNS" >> "$GITHUB_OUTPUT"
+          echo "✅ ALB DNS: $ALB_DNS"
 
   test:
     runs-on: ubuntu-latest
     needs: deploy
 
     steps:
+      - name: Ensure ALB DNS exists
+        run: |
+          if [ -z "${{ needs.deploy.outputs.alb_dns }}" ] || [ "${{ needs.deploy.outputs.alb_dns }}" = "None" ]; then
+            echo "❌ No ALB DNS found. Cannot run tests."
+            exit 1
+          fi
+
       - name: Test /health (GET)
         run: |
-          URL='http://${{ needs.deploy.outputs.alb_dns }}/health'
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/health"
           for i in {1..18}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
             if [ "$code" = "200" ]; then
@@ -194,7 +217,7 @@ jobs:
 
       - name: Test /v1/lists/head (GET)
         run: |
-          URL='http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head?list=foo,bar,baz&count=2'
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head?list=foo,bar,baz&count=2"
           RESPONSE=$(curl -s "$URL")
           EXPECTED='{"result":["foo","bar"]}'
           [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
@@ -202,7 +225,7 @@ jobs:
 
       - name: Test /v1/lists/tail (GET)
         run: |
-          URL='http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail?list=foo,bar,baz&count=1'
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail?list=foo,bar,baz&count=1"
           RESPONSE=$(curl -s "$URL")
           EXPECTED='{"result":["bar","baz"]}'
           [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
@@ -210,7 +233,7 @@ jobs:
 
       - name: Test /v1/lists/head (POST)
         run: |
-          URL='http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head'
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head"
           RESPONSE=$(curl -s -X POST -H 'Content-Type: application/json' \
             -d '{"list":["one","two","three"],"count":2}' "$URL")
           EXPECTED='{"result":["one","two"]}'
@@ -219,7 +242,7 @@ jobs:
 
       - name: Test /v1/lists/tail (POST)
         run: |
-          URL='http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail'
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail"
           RESPONSE=$(curl -s -X POST -H 'Content-Type: application/json' \
             -d '{"list":["one","two","three"],"count":1}' "$URL")
           EXPECTED='{"result":["two","three"]}'
