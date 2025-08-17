@@ -37,7 +37,6 @@ jobs:
   terraform:
     name: Terraform ${{ github.event.inputs.action || 'auto' }} (CI)
     runs-on: ubuntu-latest
-    # Use a GitHub Environment named "ci" to match IAM trust if your role trusts environment:ci
     environment: ci
     defaults:
       run:
@@ -51,16 +50,6 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-
-      # Uncomment once for debugging OIDC claims if needed
-      # - name: Debug OIDC token claims (TEMP)
-      #   uses: actions/github-script@v7
-      #   with:
-      #     script: |
-      #       const token = await core.getIDToken('sts.amazonaws.com');
-      #       const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-      #       core.info(`OIDC sub: ${payload.sub}`);
-      #       core.info(`OIDC aud: ${payload.aud}`);
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -82,7 +71,6 @@ jobs:
         if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event_name == 'push' }}
         run: terraform plan -no-color -out=tf.plan -var-file="${{ env.TF_VARS_FILE }}"
 
-      # Upload plan for PRs (optional, inspection)
       - name: Upload Plan artifact (PR only)
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
@@ -96,20 +84,20 @@ jobs:
         if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.action == 'apply' }}
         run: terraform apply -auto-approve tf.plan
 
-      # Optional: quick smoke test after apply
+      # Optional quick smoke test
       - name: Smoke test /health
         if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.action == 'apply' }}
         run: |
           set -euo pipefail
           ALB_DNS="$(terraform output -raw alb_dns)"
-          echo "ALB: http://$ALB_DNS/health"
+          echo "Hitting http://$ALB_DNS/health"
           for i in {1..12}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" "http://$ALB_DNS/health" || true)
             if [ "$code" = "200" ]; then
               echo "Health OK (200)."
               exit 0
             fi
-            echo "Attempt $i: got $code, retrying in 10s..."
+            echo "Attempt $i: got $code, waiting 10s…"
             sleep 10
           done
           echo "Health check failed"; exit 1
