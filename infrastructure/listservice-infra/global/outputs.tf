@@ -15,22 +15,22 @@ output "ecr_repository_arn" {
 
 output "registry_id" {
   description = "AWS account (registry) ID"
-  value       = aws_ecr_repository.this.registry_id
+  value       = data.aws_caller_identity.current.account_id
 }
 
 output "region" {
   description = "Region where this repo lives"
-  value       = data.aws_region.current.name
+  value       = data.aws_region.current.id
 }
 
-output "login_command" {
-  description = "Docker login command for this region"
-  value       = "aws ecr get-login-password --region ${data.aws_region.current.name} | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account}.dkr.ecr.${data.aws_region.current.name}.amazonaws.com"
+output "docker_login" {
+  description = "Docker login command"
+  value       = "aws ecr get-login-password --region ${data.aws_region.current.id} | docker login --username AWS --password-stdin ${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.id}.amazonaws.com"
 }
 
-output "push_example" {
-  description = "Example tag/push commands"
-  value       = join("\n", [
+output "docker_push_example" {
+  description = "Example build/tag/push commands"
+  value = join("\n", [
     "docker build -t ${aws_ecr_repository.this.name}:<tag> .",
     "docker tag ${aws_ecr_repository.this.name}:<tag> ${aws_ecr_repository.this.repository_url}:<tag>",
     "docker push ${aws_ecr_repository.this.repository_url}:<tag>"

@@ -86,7 +86,7 @@ jobs:
             terraform plan -no-color -out=tf.plan
           fi
 
-      # Upload plan for PRs (optional, for inspection)
+      # Upload plan for PRs only (for inspection)
       - name: Upload Plan artifact (PR only)
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
@@ -96,20 +96,21 @@ jobs:
           retention-days: 7
 
       # ---------- APPLY ----------
-      - name: Terraform Apply
+      - name: Terraform Apply (push to main or manual apply)
         if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.action == 'apply' }}
-        run: terraform apply -auto-approve tf.plan
+        run: |
+          if [ -n "${{ env.TF_VARS_FILE }}" ]; then
+            terraform apply -auto-approve -var-file="${{ env.TF_VARS_FILE }}"
+          else
+            terraform apply -auto-approve
+          fi
 
       # ---------- DESTROY ----------
-      - name: Terraform Plan Destroy
+      - name: Terraform Destroy (manual only)
         if: ${{ github.event.inputs.action == 'destroy' }}
         run: |
           if [ -n "${{ env.TF_VARS_FILE }}" ]; then
-            terraform plan -destroy -out=tf.destroy -var-file="${{ env.TF_VARS_FILE }}"
+            terraform destroy -auto-approve -var-file="${{ env.TF_VARS_FILE }}"
           else
-            terraform plan -destroy -out=tf.destroy
+            terraform destroy -auto-approve
           fi
-
-      - name: Terraform Destroy
-        if: ${{ github.event.inputs.action == 'destroy' }}
-        run: terraform apply -auto-approve tf.destroy

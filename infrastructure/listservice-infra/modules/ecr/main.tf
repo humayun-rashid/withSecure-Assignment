@@ -2,23 +2,14 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 locals {
-  # Build lifecycle rules
   keep_rule = {
     rulePriority = 1
     description  = "Keep last ${var.lifecycle_keep} images"
     selection = merge(
       var.lifecycle_tag_prefixes == [] ?
-      {
-        tagStatus = "any"
-      } :
-      {
-        tagStatus     = "tagged"
-        tagPrefixList = var.lifecycle_tag_prefixes
-      },
-      {
-        countType   = "imageCountMoreThan"
-        countNumber = var.lifecycle_keep
-      }
+      { tagStatus = "any" } :
+      { tagStatus = "tagged", tagPrefixList = var.lifecycle_tag_prefixes },
+      { countType = "imageCountMoreThan", countNumber = var.lifecycle_keep }
     )
     action = { type = "expire" }
   }
@@ -72,21 +63,19 @@ resource "aws_ecr_lifecycle_policy" "this" {
   policy     = jsonencode({ rules = local.lifecycle_rules })
 }
 
-# Optional repository policy (e.g., cross-account pull)
 resource "aws_ecr_repository_policy" "this" {
   count      = var.repository_policy_json == null ? 0 : 1
   repository = aws_ecr_repository.this.name
   policy     = var.repository_policy_json
 }
 
-# Optional account-level BASIC registry scanning (idempotent)
+# Account-level registry scanning (optional)
 resource "aws_ecr_registry_scanning_configuration" "this" {
-  count = var.enable_registry_scan ? 1 : 0
-
-  scan_type = "BASIC"
+  count     = var.enable_registry_scan ? 1 : 0
+  scan_type = var.registry_scan_type
 
   rule {
-    scan_frequency = "SCAN_ON_PUSH"
+    scan_frequency = var.registry_scan_frequency
     repository_filter {
       filter      = "*"
       filter_type = "WILDCARD"

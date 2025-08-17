@@ -3,4 +3,4 @@ key            = "listservice/global/terraform.tfstate"
 region         = "eu-central-1"
 dynamodb_table = "tf-state-lock"
 encrypt        = true
-# no profile here (CI uses OIDC creds)
+profile        = "sandbox"

@@ -14,7 +14,7 @@ variable "image_tag_mutability" {
 }
 
 variable "scan_on_push" {
-  description = "Enable image scanning on push (repository level)"
+  description = "Enable image scanning on push (repository-level, independent of registry scanning)"
   type        = bool
   default     = true
 }
@@ -32,19 +32,19 @@ variable "kms_key_arn" {
 }
 
 variable "lifecycle_keep" {
-  description = "Keep the most recent N images (using imageCountMoreThan)"
+  description = "Keep the most recent N images"
   type        = number
   default     = 20
 }
 
 variable "lifecycle_tag_prefixes" {
-  description = "Optional list of tag prefixes to scope the keep-N rule. Empty = apply to any tag status."
+  description = "If non-empty, the keep-N rule applies only to tags with these prefixes"
   type        = list(string)
   default     = []
 }
 
 variable "lifecycle_expire_untagged" {
-  description = "If true, expire untagged images older than lifecycle_untagged_days"
+  description = "Expire untagged images older than lifecycle_untagged_days"
   type        = bool
   default     = true
 }
@@ -61,10 +61,31 @@ variable "repository_policy_json" {
   default     = null
 }
 
+# Registry scanning (account-level)
 variable "enable_registry_scan" {
-  description = "If true, enables BASIC registry scanning at account level (idempotent)."
+  description = "Enable ECR registry scanning (account-level)"
   type        = bool
   default     = false
+}
+
+variable "registry_scan_type" {
+  description = "BASIC or ENHANCED (Inspector)"
+  type        = string
+  default     = "BASIC"
+  validation {
+    condition     = contains(["BASIC", "ENHANCED"], var.registry_scan_type)
+    error_message = "registry_scan_type must be BASIC or ENHANCED."
+  }
+}
+
+variable "registry_scan_frequency" {
+  description = "SCAN_ON_PUSH or CONTINUOUS_SCAN (for ENHANCED)"
+  type        = string
+  default     = "SCAN_ON_PUSH"
+  validation {
+    condition     = contains(["SCAN_ON_PUSH", "CONTINUOUS_SCAN"], var.registry_scan_frequency)
+    error_message = "registry_scan_frequency must be SCAN_ON_PUSH or CONTINUOUS_SCAN."
+  }
 }
 
 variable "tags" {
