@@ -1,12 +1,12 @@
-name: Build, Test, and Publish (ECR)
+name: Build, Test, Publish, and Deploy
 
 on:
   push:
     branches:
       - main
-      - ci
       - staging
-      - "*"           # feature branches
+      - ci
+      - "*"
   workflow_dispatch:
     inputs:
       push_latest:
@@ -24,6 +24,8 @@ env:
   ECR_REPO: listservice-global
   IMAGE_CONTEXT: ./listservice-backend
   DOCKERFILE: ./listservice-backend/Dockerfile
+  ECS_CLUSTER: listservice-global-cluster
+  ECS_SERVICE: listservice-global-service
 
 jobs:
   build:
@@ -56,47 +58,28 @@ jobs:
 
       - name: Resolve branch/env and SHA
         id: resolve
-        shell: bash
         run: |
           BRANCH="${GITHUB_REF##*/}"
           case "$BRANCH" in
             staging) ENV_TAG="staging" ;;
             *)       ENV_TAG="$BRANCH" ;;
           esac
-
           echo "env_tag=${ENV_TAG}" >> "$GITHUB_OUTPUT"
           echo "sha_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Compose tag list (ECR only)
+      - name: Compose tag list
         id: compose
-        shell: bash
         run: |
-          set -euo pipefail
-
           ECR="${{ steps.vars.outputs.ecr_repo_url }}"
           SHA="${{ steps.resolve.outputs.sha_tag }}"
           ENV_TAG="${{ steps.resolve.outputs.env_tag }}"
-
-          TAGS=()
-
-          # Always push SHA tag
-          TAGS+=("${ECR}:${SHA}")
-
-          # Always push both :ci and :latest for compatibility
-          TAGS+=("${ECR}:ci")
-          TAGS+=("${ECR}:latest")
-
-          # Add branch/env-specific tag if not ci/latest (e.g. staging or feature branch)
+          TAGS=("${ECR}:${SHA}" "${ECR}:ci" "${ECR}:latest")
           if [[ "${ENV_TAG}" != "ci" && "${ENV_TAG}" != "latest" ]]; then
             TAGS+=("${ECR}:${ENV_TAG}")
           fi
-
-          # Manual override: allow :latest on manual dispatch if requested
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.push_latest }}" == "true" ]]; then
             TAGS+=("${ECR}:latest")
           fi
-
-          # Export newline-separated tags
           {
             echo "tags<<EOF"
             printf "%s\n" "${TAGS[@]}"
@@ -106,7 +89,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build image (no push yet)
+      - name: Build image (for test)
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.IMAGE_CONTEXT }}
@@ -115,12 +98,12 @@ jobs:
           load: true
           tags: listservice:test
 
-      - name: Run container in background
+      - name: Run container
         run: |
           docker run -d --rm -p 8080:8080 --name listservice-test listservice:test
-          sleep 10 # wait for app to start
+          sleep 10
 
-      - name: Run API smoke tests
+      - name: Run smoke tests
         run: |
           curl -f http://localhost:8080/health
           curl -f "http://localhost:8080/v1/lists/head?list=a,b,c&count=2"
@@ -132,7 +115,7 @@ jobs:
         if: always()
         run: docker stop listservice-test || true
 
-      - name: Build & Push (ECR)
+      - name: Build & Push to ECR
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.IMAGE_CONTEXT }}
@@ -142,3 +125,21 @@ jobs:
           tags: ${{ steps.compose.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::920120424372:role/ListService-Global-Deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update ECS service
+        run: |
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER}" \
+            --service "${ECS_SERVICE}" \
+            --force-new-deployment \
+            --region "${AWS_REGION}"
