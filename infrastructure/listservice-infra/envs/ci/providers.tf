@@ -11,5 +11,6 @@ terraform {
 
 provider "aws" {
   region  = var.region
-  profile = var.aws_profile
+  # Use profile only if set (local dev). In CI, leave blank so OIDC creds are used.
+  profile = var.aws_profile != "" ? var.aws_profile : null
 }
