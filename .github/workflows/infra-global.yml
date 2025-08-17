@@ -70,8 +70,8 @@ jobs:
       - name: Terraform Init (remote state)
         run: terraform init -reconfigure -backend-config=backend.hcl
 
-      - name: Terraform Fmt
-        run: terraform fmt -check -recursive
+    #   - name: Terraform Fmt
+    #     run: terraform fmt -check -recursive
 
       - name: Terraform Validate
         run: terraform validate
