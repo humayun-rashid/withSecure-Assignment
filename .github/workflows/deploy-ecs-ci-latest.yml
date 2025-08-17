@@ -1,17 +1,17 @@
 name: Deploy to ECS (CI – latest)
 
 on:
-  # Auto-deploy after a successful image build
+  # Trigger after successful build workflow
   workflow_run:
     workflows: ["Build and Publish (ECR)"]
     types: [completed]
-    branches: [main, ci]
+    branches: [main, ci, staging]
 
   # Manual run any time
   workflow_dispatch:
     inputs:
       alb_dns:
-        description: "Optional ALB DNS for smoke test (e.g., listservice-ci-alb-xxxx.eu-central-1.elb.amazonaws.com)"
+        description: "Optional ALB DNS for smoke test"
         required: false
       skip_wait:
         description: "Skip waiting for service to stabilize"
@@ -66,7 +66,6 @@ jobs:
         id: count
         shell: bash
         run: |
-          set -euo pipefail
           CUR_COUNT=$(aws ecs describe-services \
             --cluster "${{ env.CLUSTER }}" \
             --services "${{ env.SERVICE }}" \
@@ -80,7 +79,6 @@ jobs:
       - name: Force new deployment (keep desiredCount)
         shell: bash
         run: |
-          set -euo pipefail
           aws ecs update-service \
             --cluster "${{ env.CLUSTER }}" \
             --service "${{ env.SERVICE }}" \
@@ -93,7 +91,6 @@ jobs:
         if: ${{ inputs.skip_wait != 'true' }}
         shell: bash
         run: |
-          set -euo pipefail
           aws ecs wait services-stable \
             --cluster "${{ env.CLUSTER }}" \
             --services "${{ env.SERVICE }}"
@@ -103,7 +100,6 @@ jobs:
         if: ${{ inputs.alb_dns != '' }}
         shell: bash
         run: |
-          set -euo pipefail
           URL="http://${{ inputs.alb_dns }}/health"
           echo "Smoking: $URL"
           for i in {1..18}; do
