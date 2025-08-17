@@ -3,13 +3,18 @@ name: Deploy to ECS (CI)
 on:
   workflow_dispatch:
     inputs:
+      pin_sha:
+        description: "Register/Use a new task definition with a specific image SHA"
+        type: boolean
+        required: false
+        default: false
       image_sha:
-        description: 'Image SHA to deploy (defaults to last build SHA)'
+        description: "SHA to deploy when pin_sha=true (defaults to last successful build SHA)"
         required: false
   workflow_run:
-    workflows: ["Build and Publish Container"]
+    workflows: ["Build and Publish (ECR)"]
     types: [completed]
-    branches: [main]   # deploy only after main builds
+    branches: [main]  # only auto-deploy after main builds
 
 permissions:
   id-token: write
@@ -19,7 +24,6 @@ env:
   AWS_REGION: eu-central-1
   CLUSTER: listservice-ci-cluster
   SERVICE: listservice-ci-svc
-  CONTAINER_NAME: app
   ECR_REPO: listservice-global
   AWS_ACCOUNT_ID: 920120424372
 
@@ -36,93 +40,108 @@ jobs:
           role-to-assume: arn:aws:iam::920120424372:role/ListService-CI-Deploy
           aws-region: ${{ env.AWS_REGION }}
 
-      # Figure out which SHA to deploy
-      - name: Resolve image SHA
+      - name: Resolve image SHA (when pin_sha=true)
         id: pick
+        shell: bash
         run: |
-          if [ -n "${{ github.event.inputs.image_sha || '' }}" ]; then
-            echo "sha=${{ github.event.inputs.image_sha }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          # Decide if we are pinning a SHA or just forcing a new deployment
+          PIN="${{ github.event.inputs.pin_sha || 'false' }}"
+          echo "pin_sha=${PIN}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${PIN}" != "true" ]]; then
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ -n "${{ github.event.inputs.image_sha || '' }}" ]]; then
+            echo "sha=${{ github.event.inputs.image_sha }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
           else
-            echo "No SHA found. Provide image_sha input." >&2
+            echo "No SHA provided; set image_sha or re-run after a successful build." >&2
             exit 1
           fi
 
-      # Get current task definition ARN from service
-      - name: Get current task definition
-        id: cur
-        run: |
-          TD_ARN=$(aws ecs describe-services \
-            --cluster "${{ env.CLUSTER }}" \
-            --services "${{ env.SERVICE }}" \
-            --query "services[0].taskDefinition" \
-            --output text)
-          echo "task_def_arn=$TD_ARN" >> $GITHUB_OUTPUT
-          echo "Current task def: $TD_ARN"
-
-      # Download task definition JSON
-      - name: Download task definition JSON
-        run: |
-          aws ecs describe-task-definition \
-            --task-definition "${{ steps.cur.outputs.task_def_arn }}" \
-            --query "taskDefinition" > td.json
-          cat td.json
-
-      # Create new task definition with new image
-      - name: Create new task definition with new image
-        id: new
-        run: |
-          IMG="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ steps.pick.outputs.sha }}"
-          echo "Using image: $IMG"
-
-          # Replace container image by container name
-          NEW_TD_PAYLOAD="$(jq --arg IMG "$IMG" --arg NAME "${{ env.CONTAINER_NAME }}" '
-            .containerDefinitions |= map(if .name == $NAME then .image = $IMG else . end)
-            | {
-                family,
-                taskRoleArn,
-                executionRoleArn,
-                networkMode,
-                containerDefinitions,
-                volumes,
-                placementConstraints,
-                requiresCompatibilities,
-                cpu,
-                memory,
-                runtimePlatform,
-                ephemeralStorage
-              }
-          ' td.json)"
-
-          echo "$NEW_TD_PAYLOAD" > td-new.json
-
-          aws ecs register-task-definition \
-            --cli-input-json file://td-new.json > reg.json
-
-          NEW_ARN=$(jq -r .taskDefinition.taskDefinitionArn reg.json)
-          echo "new_td_arn=$NEW_ARN" >> $GITHUB_OUTPUT
-          echo "Registered new TD: $NEW_ARN"
-
-      # Update service
-      - name: Update service to new task def
+      - name: Force new deployment (use existing task definition & tag)
+        if: ${{ steps.pick.outputs.pin_sha != 'true' }}
         run: |
           aws ecs update-service \
             --cluster "${{ env.CLUSTER }}" \
             --service "${{ env.SERVICE }}" \
-            --task-definition "${{ steps.new.outputs.new_td_arn }}" \
+            --force-new-deployment \
+            --no-cli-pager
+          aws ecs wait services-stable --cluster "${{ env.CLUSTER }}" --services "${{ env.SERVICE }}"
+          echo "✅ CI service rolled; tasks will pull the latest tag they reference (e.g. :ci)."
+
+      - name: Pin a new image SHA by registering a new task def (advanced)
+        if: ${{ steps.pick.outputs.pin_sha == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Get current service task definition ARN
+          CUR_TD_ARN="$(aws ecs describe-services \
+            --cluster "${{ env.CLUSTER }}" \
+            --services "${{ env.SERVICE }}" \
+            --query 'services[0].taskDefinition' \
+            --output text)"
+
+          echo "Current task def: $CUR_TD_ARN"
+
+          # Dump the full current TD JSON
+          aws ecs describe-task-definition \
+            --task-definition "$CUR_TD_ARN" \
+            --query 'taskDefinition' > td.json
+
+          # Build new container image URI
+          ECR="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}"
+          IMG="${ECR}:${{ steps.pick.outputs.sha }}"
+          echo "Using image: $IMG"
+
+          # Replace image in the first container definition (name assumed stable)
+          jq --arg IMG "$IMG" '
+            .containerDefinitions[0].image = $IMG
+          ' td.json > td-new-containers.json
+
+          FAMILY=$(jq -r .family td.json)
+          CPU=$(jq -r '.cpu // empty' td.json)
+          MEM=$(jq -r '.memory // empty' td.json)
+          NET=$(jq -r '.networkMode' td.json)
+          EXEC_ROLE=$(jq -r '.executionRoleArn // empty' td.json)
+          TASK_ROLE=$(jq -r '.taskRoleArn // empty' td.json)
+          REQC=$(jq -c '.requiresCompatibilities' td.json)
+          RTP=$(jq -c '.runtimePlatform // empty' td.json)
+          VOLS=$(jq -c '.volumes // empty' td.json)
+          EPHEM=$(jq -c '.ephemeralStorage // empty' td.json)
+          PCON=$(jq -c '.proxyConfiguration // empty' td.json)
+          PLAC=$(jq -c '.placementConstraints // empty' td.json)
+
+          # Construct register-task-definition args
+          ARGS=( --family "$FAMILY"
+                 --requires-compatibilities "$REQC"
+                 --network-mode "$NET"
+                 --container-definitions "file://td-new-containers.json" )
+
+          [[ -n "$CPU"       ]] && ARGS+=( --cpu "$CPU" )
+          [[ -n "$MEM"       ]] && ARGS+=( --memory "$MEM" )
+          [[ -n "$EXEC_ROLE" ]] && ARGS+=( --execution-role-arn "$EXEC_ROLE" )
+          [[ -n "$TASK_ROLE" ]] && ARGS+=( --task-role-arn "$TASK_ROLE" )
+          [[ "$RTP"   != "null" && -n "$RTP"   ]] && ARGS+=( --runtime-platform "$RTP" )
+          [[ "$VOLS"  != "null" && -n "$VOLS"  ]] && ARGS+=( --volumes "$VOLS" )
+          [[ "$EPHEM" != "null" && -n "$EPHEM" ]] && ARGS+=( --ephemeral-storage "$EPHEM" )
+          [[ "$PCON"  != "null" && -n "$PCON"  ]] && ARGS+=( --proxy-configuration "$PCON" )
+          [[ "$PLAC"  != "null" && -n "$PLAC"  ]] && ARGS+=( --placement-constraints "$PLAC" )
+
+          aws ecs register-task-definition "${ARGS[@]}" > reg.json
+          NEW_TD_ARN=$(jq -r .taskDefinition.taskDefinitionArn reg.json)
+          echo "New task def: $NEW_TD_ARN"
+
+          aws ecs update-service \
+            --cluster "${{ env.CLUSTER }}" \
+            --service "${{ env.SERVICE }}" \
+            --task-definition "$NEW_TD_ARN" \
             --force-new-deployment \
             --no-cli-pager
 
-      # Wait until stable
-      - name: Wait for service stable
-        run: |
-          aws ecs wait services-stable \
-            --cluster "${{ env.CLUSTER }}" \
-            --services "${{ env.SERVICE }}"
-          echo "✅ CI service is stable."
-
-      # Optional smoke test
-      - name: Quick smoke test
-        run: |
-          echo "Deploy finished. Run smoke tests here (curl ALB /health, etc)."
+          aws ecs wait services-stable --cluster "${{ env.CLUSTER }}" --services "${{ env.SERVICE }}"
+          echo "✅ CI service updated to $IMG"

@@ -1,4 +1,4 @@
-name: Build and Publish to ECR
+name: Build and Publish (ECR)
 
 on:
   push:
@@ -6,51 +6,33 @@ on:
       - main
       - ci
       - staging
-      - "*"        # feature branches
+      - "*"           # feature branches
   workflow_dispatch:
     inputs:
-      env_tag:
-        description: "Tag to apply (auto=derive from branch)"
-        type: choice
+      push_latest:
+        description: "Also push :latest (for manual runs)"
         required: false
-        default: auto
-        options: [auto, latest, ci, staging, custom]
-      custom_tag:
-        description: "Custom tag value when env_tag=custom"
-        type: string
-        required: false
-        default: ""
-      sha_tag:
-        description: "Override image SHA tag (defaults to commit SHA)"
-        type: string
-        required: false
-        default: ""
-      push_latest_ecr:
-        description: "Push :latest to ECR (only if repo is MUTABLE)"
-        type: boolean
-        required: false
-        default: false
+        default: "false"
 
 permissions:
-  id-token: write     # for AWS OIDC
+  id-token: write
   contents: read
 
 env:
   AWS_REGION: eu-central-1
   AWS_ACCOUNT_ID: 920120424372
   ECR_REPO: listservice-global
-  IMAGE_NAME: listservice
+  IMAGE_CONTEXT: ./listservice
+  DOCKERFILE: ./listservice/Dockerfile.ecs
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     outputs:
-      sha_tag: ${{ steps.resolve.outputs.sha_tag }}
-      env_tag: ${{ steps.resolve.outputs.env_tag }}
       ecr_repo_url: ${{ steps.vars.outputs.ecr_repo_url }}
-      ecr_image_uri_sha: ${{ steps.compose.outputs.ecr_image_uri_sha }}
-      ecr_image_uri_latest: ${{ steps.compose.outputs.ecr_image_uri_latest }}
+      sha_tag: ${{ steps.resolve.outputs.sha_tag }}
+      pushed_tags: ${{ steps.compose.outputs.tags }}
 
     steps:
       - name: Checkout
@@ -64,79 +46,70 @@ jobs:
 
       - name: Log in to Amazon ECR
         run: |
-          aws ecr get-login-password --region $AWS_REGION \
-            | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+          aws ecr get-login-password --region "${AWS_REGION}" \
+            | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
-      - name: Resolve tags (env & sha)
+      - name: Set variables
+        id: vars
+        run: |
+          echo "ecr_repo_url=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve branch/env and SHA
         id: resolve
         shell: bash
         run: |
-          # Resolve env tag
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.env_tag }}" != "auto" ]]; then
-            case "${{ inputs.env_tag }}" in
-              latest|ci|staging) ENV_TAG="${{ inputs.env_tag }}" ;;
-              custom) ENV_TAG="${{ inputs.custom_tag }}" ;;
-              *) echo "Invalid env_tag"; exit 1 ;;
-            esac
-          else
-            BRANCH="${GITHUB_REF##*/}"
-            case "$BRANCH" in
-              main)    ENV_TAG="latest" ;;
-              ci)      ENV_TAG="ci" ;;
-              staging) ENV_TAG="staging" ;;
-              *)       ENV_TAG="$BRANCH" ;;
-            esac
-          fi
+          BRANCH="${GITHUB_REF##*/}"
+          case "$BRANCH" in
+            main)    ENV_TAG="latest"  ;;
+            ci)      ENV_TAG="ci"      ;;
+            staging) ENV_TAG="staging" ;;
+            *)       ENV_TAG="$BRANCH" ;;
+          esac
 
-          # Resolve sha tag
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.sha_tag }}" ]]; then
-            SHA_TAG="${{ inputs.sha_tag }}"
-          else
-            SHA_TAG="${GITHUB_SHA}"
-          fi
+          echo "env_tag=${ENV_TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
-          echo "env_tag=$ENV_TAG"  >> "$GITHUB_OUTPUT"
-          echo "sha_tag=$SHA_TAG"  >> "$GITHUB_OUTPUT"
-
-          # Latest toggle
-          PUSH_LATEST_ECR="${{ inputs.push_latest_ecr }}"
-          if [[ "${GITHUB_REF##*/}" == "main" && "${{ github.event_name }}" != "workflow_dispatch" ]]; then
-            # Set true ONLY if repo is MUTABLE
-            PUSH_LATEST_ECR=true
-          fi
-          echo "push_latest_ecr=$PUSH_LATEST_ECR" >> "$GITHUB_OUTPUT"
-
-      - name: Set common vars
-        id: vars
+      - name: Compose tag list (ECR only)
+        id: compose
+        shell: bash
         run: |
-          echo "ecr_repo_url=${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+
+          ECR="${{ steps.vars.outputs.ecr_repo_url }}"
+          SHA="${{ steps.resolve.outputs.sha_tag }}"
+          ENV_TAG="${{ steps.resolve.outputs.env_tag }}"
+
+          # Always push SHA tag
+          TAGS=("${ECR}:${SHA}")
+
+          # Push env tag if it's one of main/ci/staging (or manual flag requests :latest)
+          if [[ "${ENV_TAG}" == "latest" || "${ENV_TAG}" == "ci" || "${ENV_TAG}" == "staging" ]]; then
+            TAGS+=("${ECR}:${ENV_TAG}")
+          fi
+
+          # Manual override: allow :latest on manual dispatch if requested
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.push_latest }}" == "true" ]]; then
+            TAGS+=("${ECR}:latest")
+          fi
+
+          # Export multiline output correctly (no quoted EOF!)
+          {
+            echo "tags<<EOF"
+            printf "%s\n" "${TAGS[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Compose tag list
-        id: compose
-        shell: bash
-        run: |
-          ECR_SHA="${{ steps.vars.outputs.ecr_repo_url }}:${{ steps.resolve.outputs.sha_tag }}"
-          echo "ecr_image_uri_sha=$ECR_SHA" >> "$GITHUB_OUTPUT"
-
-          TAGS=("$ECR_SHA")
-          if [[ "${{ steps.resolve.outputs.push_latest_ecr }}" == "true" ]]; then
-            ECR_LATEST="${{ steps.vars.outputs.ecr_repo_url }}:latest"
-            TAGS+=("$ECR_LATEST")
-            echo "ecr_image_uri_latest=$ECR_LATEST" >> "$GITHUB_OUTPUT"
-          fi
-
-          printf "tags<<'EOF'\n%s\nEOF\n" "$(printf "%s\n" "${TAGS[@]}")" >> "$GITHUB_OUTPUT"
-
-      - name: Build and Push to ECR
+      - name: Build & Push (ECR)
         uses: docker/build-push-action@v6
         with:
-          context: ./listservice
-          file: ./listservice/Dockerfile.ecs
-          platforms: linux/amd64
+          context: ${{ env.IMAGE_CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
           push: true
+          platforms: linux/amd64
+          # Feed the newline-separated tag list
           tags: ${{ steps.compose.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
