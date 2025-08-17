@@ -30,7 +30,7 @@ concurrency:
 env:
   AWS_REGION: eu-central-1
   TF_ENV_DIR: infrastructure/listservice-infra/global
-  TF_VARS_FILE: ""        # set to e.g. global.tfvars if you add one
+  TF_VARS_FILE: ""        # optional: set to global.tfvars
   TF_VERSION: 1.9.5
 
 jobs:
@@ -51,7 +51,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # TEMP: Debug OIDC claims; delete after trust is verified
+      # TEMP: Debug OIDC claims
       - name: Debug OIDC token claims (TEMP)
         uses: actions/github-script@v7
         with:
@@ -76,9 +76,9 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      # ---------- PLAN for PRs ----------
-      - name: Terraform Plan (PR)
-        if: ${{ github.event_name == 'pull_request' }}
+      # ---------- PLAN ----------
+      - name: Terraform Plan
+        if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event_name == 'push' }}
         run: |
           if [ -n "${{ env.TF_VARS_FILE }}" ]; then
             terraform plan -no-color -out=tf.plan -var-file="${{ env.TF_VARS_FILE }}"
@@ -86,7 +86,8 @@ jobs:
             terraform plan -no-color -out=tf.plan
           fi
 
-      - name: Upload Plan artifact (PR)
+      # Upload plan for PRs (optional, for inspection)
+      - name: Upload Plan artifact (PR only)
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
@@ -94,60 +95,14 @@ jobs:
           path: ${{ env.TF_ENV_DIR }}/tf.plan
           retention-days: 7
 
-      # ---------- PUSH to main: plan + apply in same run (no artifacts) ----------
-      - name: Terraform Plan (push to main)
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: |
-          if [ -n "${{ env.TF_VARS_FILE }}" ]; then
-            terraform plan -no-color -out=tf.plan -var-file="${{ env.TF_VARS_FILE }}"
-          else
-            terraform plan -no-color -out=tf.plan
-          fi
-
-      - name: Terraform Apply (push to main)
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      # ---------- APPLY ----------
+      - name: Terraform Apply
+        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.action == 'apply' }}
         run: terraform apply -auto-approve tf.plan
 
-      # ---------- MANUAL: plan ----------
-      - name: Terraform Plan (manual)
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan' }}
-        run: |
-          if [ -n "${{ env.TF_VARS_FILE }}" ]; then
-            terraform plan -no-color -out=tf.plan -var-file="${{ env.TF_VARS_FILE }}"
-          else
-            terraform plan -no-color -out=tf.plan
-          fi
-
-      # ---------- MANUAL: apply ----------
-      # Try to download a plan created earlier in this SAME run (or a PR run),
-      # but if it's not found, we will create a fresh plan and then apply.
-      - name: Download plan artifact (manual apply)
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: tf-plan-global
-          path: ${{ env.TF_ENV_DIR }}
-        continue-on-error: true
-
-      - name: Create plan if missing (manual apply)
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
-        run: |
-          if [ ! -f tf.plan ]; then
-            echo "No tf.plan artifact found; creating a fresh plan..."
-            if [ -n "${{ env.TF_VARS_FILE }}" ]; then
-              terraform plan -no-color -out=tf.plan -var-file="${{ env.TF_VARS_FILE }}"
-            else
-              terraform plan -no-color -out=tf.plan
-            fi
-          fi
-
-      - name: Terraform Apply (manual)
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
-        run: terraform apply -auto-approve tf.plan
-
-      # ---------- MANUAL: destroy ----------
-      - name: Terraform Plan Destroy (manual)
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
+      # ---------- DESTROY ----------
+      - name: Terraform Plan Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
         run: |
           if [ -n "${{ env.TF_VARS_FILE }}" ]; then
             terraform plan -destroy -out=tf.destroy -var-file="${{ env.TF_VARS_FILE }}"
@@ -155,6 +110,6 @@ jobs:
             terraform plan -destroy -out=tf.destroy
           fi
 
-      - name: Terraform Destroy (manual)
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
+      - name: Terraform Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
         run: terraform apply -auto-approve tf.destroy
