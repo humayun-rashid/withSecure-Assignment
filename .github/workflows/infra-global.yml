@@ -1,0 +1,133 @@
+name: Infra (GLOBAL)
+
+on:
+  pull_request:
+    paths:
+      - 'infrastructure/listservice-infra/global/**'
+      - 'infrastructure/listservice-infra/modules/ecr/**'
+      - '.github/workflows/infra-global.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'infrastructure/listservice-infra/global/**'
+      - 'infrastructure/listservice-infra/modules/ecr/**'
+      - '.github/workflows/infra-global.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Choose action'
+        type: choice
+        required: true
+        options: [ plan, apply, destroy ]
+        default: plan
+
+permissions:
+  id-token: write    # required for AWS OIDC
+  contents: read
+
+concurrency:
+  group: infra-global
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-central-1
+  TF_ENV_DIR: infrastructure/listservice-infra/global
+  # no tfvars for global by default
+
+jobs:
+  terraform:
+    name: Terraform ${{ github.event.inputs.action || 'auto' }} (GLOBAL)
+    runs-on: ubuntu-latest
+    # environment: global   # optional: protect with required reviewers
+    defaults:
+      run:
+        working-directory: ${{ env.TF_ENV_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+
+      # Optional: lint/security
+      - name: Install tflint & tfsec
+        run: |
+          curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+          curl -sL https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # You can reuse the CI role if it has ECR perms, or create a narrower one:
+          # arn:aws:iam::920120424372:role/ListService-Global-Deploy
+          role-to-assume: arn:aws:iam::920120424372:role/ListService-CI-Deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init (remote state)
+        run: terraform init -reconfigure -backend-config=backend.hcl -input=false
+
+      - name: Terraform Fmt
+        run: terraform fmt -check -recursive
+
+      - name: TFLint
+        run: |
+          tflint --init
+          tflint --recursive
+
+      - name: tfsec
+        run: tfsec . || true   # make strict later
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      # -------- PLAN --------
+      - name: Terraform Plan
+        if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == '' }}
+        run: |
+          terraform plan -out=tf.plan -no-color -input=false
+          terraform show -json tf.plan > tfplan.json
+
+      - name: Upload Plan artifact
+        if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tf-plan-global
+          path: |
+            ${{ env.TF_ENV_DIR }}/tf.plan
+            ${{ env.TF_ENV_DIR }}/tfplan.json
+
+      - name: Comment plan on PR
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: ${{ env.TF_ENV_DIR }}/tfplan.json
+
+      # -------- APPLY --------
+      - name: Download plan (if exists)
+        if: ${{ github.event.inputs.action == 'apply' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: tf-plan-global
+          path: ${{ env.TF_ENV_DIR }}
+        continue-on-error: true
+
+      - name: Terraform Apply (from plan if present)
+        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.action == 'apply' }}
+        run: |
+          if [ -f tf.plan ]; then
+            terraform apply -auto-approve -input=false tf.plan
+          else
+            terraform apply -auto-approve -input=false
+          fi
+
+      # -------- DESTROY --------
+      - name: Terraform Plan Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: terraform plan -destroy -out=tf.destroy -input=false
+
+      - name: Terraform Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: terraform apply -auto-approve -input=false tf.destroy
