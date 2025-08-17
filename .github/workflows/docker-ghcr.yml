@@ -1,111 +1,111 @@
-name: Build and Publish Container
+# name: Build and Publish Container
 
-on:
-  push:
-    branches:
-      - "main"
-      - "staging"
-      - "ci"
-      - "*"    # feature branches
+# on:
+#   push:
+#     branches:
+#       - "main"
+#       - "staging"
+#       - "ci"
+#       - "*"    # feature branches
 
-env:
-  AWS_REGION: eu-central-1
-  AWS_ACCOUNT_ID: 920120424372
-  ECR_REPO: listservice-global
-  IMAGE_NAME: listservice
+# env:
+#   AWS_REGION: eu-central-1
+#   AWS_ACCOUNT_ID: 920120424372
+#   ECR_REPO: listservice-global
+#   IMAGE_NAME: listservice
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write   # push to GHCR
-      id-token: write   # OIDC → AWS
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     permissions:
+#       contents: read
+#       packages: write   # push to GHCR
+#       id-token: write   # OIDC → AWS
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
 
-      - name: Compute lowercase owner
-        id: ow
-        run: echo "owner_lc=${GITHUB_REPOSITORY_OWNER@L}" >> "$GITHUB_OUTPUT"
+#       - name: Compute lowercase owner
+#         id: ow
+#         run: echo "owner_lc=${GITHUB_REPOSITORY_OWNER@L}" >> "$GITHUB_OUTPUT"
 
-      # ---------- Auth: GHCR ----------
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+#       # ---------- Auth: GHCR ----------
+#       - name: Log in to GHCR
+#         uses: docker/login-action@v3
+#         with:
+#           registry: ghcr.io
+#           username: ${{ github.actor }}
+#           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---------- Auth: AWS ECR via OIDC ----------
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::920120424372:role/ListService-Global-Deploy
-          aws-region: ${{ env.AWS_REGION }}
+#       # ---------- Auth: AWS ECR via OIDC ----------
+#       - name: Configure AWS credentials via OIDC
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: arn:aws:iam::920120424372:role/ListService-Global-Deploy
+#           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to Amazon ECR
-        run: |
-          aws ecr get-login-password --region "$AWS_REGION" \
-            | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+#       - name: Log in to Amazon ECR
+#         run: |
+#           aws ecr get-login-password --region "$AWS_REGION" \
+#             | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
-      # ---------- Derive normalized tags ----------
-      - name: Compute tags (branch + short SHA)
-        id: tags
-        shell: bash
-        run: |
-          set -euo pipefail
+#       # ---------- Derive normalized tags ----------
+#       - name: Compute tags (branch + short SHA)
+#         id: tags
+#         shell: bash
+#         run: |
+#           set -euo pipefail
 
-          # Raw branch name (e.g., refs/heads/feature/my-cool-thing → feature/my-cool-thing)
-          RAW_BRANCH="${GITHUB_REF##*/}"
+#           # Raw branch name (e.g., refs/heads/feature/my-cool-thing → feature/my-cool-thing)
+#           RAW_BRANCH="${GITHUB_REF##*/}"
 
-          # Map special branches
-          case "$RAW_BRANCH" in
-            main)    BRANCH_TAG="latest" ;;
-            staging) BRANCH_TAG="staging" ;;
-            ci)      BRANCH_TAG="ci" ;;
-            *)       BRANCH_TAG="$RAW_BRANCH" ;;
-          esac
+#           # Map special branches
+#           case "$RAW_BRANCH" in
+#             main)    BRANCH_TAG="latest" ;;
+#             staging) BRANCH_TAG="staging" ;;
+#             ci)      BRANCH_TAG="ci" ;;
+#             *)       BRANCH_TAG="$RAW_BRANCH" ;;
+#           esac
 
-          # Slugify: lowercase, replace invalid chars with '-', collapse repeats, trim to 50 chars
-          # Docker tag char set: [A-Za-z0-9_.-] (we keep only lowercase alnum plus ._-; replace others by -)
-          SLUG="$(echo "$BRANCH_TAG" \
-            | tr '[:upper:]' '[:lower:]' \
-            | sed -E 's/[^a-z0-9._-]+/-/g; s/-{2,}/-/g; s/^-+//; s/-+$//' \
-          )"
-          # Ensure non-empty after slug (fallback to 'dev')
-          if [ -z "$SLUG" ]; then SLUG="dev"; fi
-          # Trim to 50 chars (Docker allows up to 128; 50 keeps names tidy)
-          SLUG="${SLUG:0:50}"
+#           # Slugify: lowercase, replace invalid chars with '-', collapse repeats, trim to 50 chars
+#           # Docker tag char set: [A-Za-z0-9_.-] (we keep only lowercase alnum plus ._-; replace others by -)
+#           SLUG="$(echo "$BRANCH_TAG" \
+#             | tr '[:upper:]' '[:lower:]' \
+#             | sed -E 's/[^a-z0-9._-]+/-/g; s/-{2,}/-/g; s/^-+//; s/-+$//' \
+#           )"
+#           # Ensure non-empty after slug (fallback to 'dev')
+#           if [ -z "$SLUG" ]; then SLUG="dev"; fi
+#           # Trim to 50 chars (Docker allows up to 128; 50 keeps names tidy)
+#           SLUG="${SLUG:0:50}"
 
-          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-12)"
+#           SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-12)"
 
-          echo "branch_tag=$SLUG"        >> "$GITHUB_OUTPUT"
-          echo "short_sha=$SHORT_SHA"   >> "$GITHUB_OUTPUT"
+#           echo "branch_tag=$SLUG"        >> "$GITHUB_OUTPUT"
+#           echo "short_sha=$SHORT_SHA"   >> "$GITHUB_OUTPUT"
 
-          echo "Resolved tags:"
-          echo "  branch_tag: $SLUG"
-          echo "  short_sha : $SHORT_SHA"
+#           echo "Resolved tags:"
+#           echo "  branch_tag: $SLUG"
+#           echo "  short_sha : $SHORT_SHA"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+#       - name: Set up Docker Buildx
+#         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Push to GHCR + ECR
-        uses: docker/build-push-action@v6
-        with:
-          context: ./listservice
-          file: ./listservice/Dockerfile.ecs
-          push: true
-          platforms: linux/amd64
-          tags: |
-            ghcr.io/${{ steps.ow.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.branch_tag }}
-            ghcr.io/${{ steps.ow.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.short_sha }}
-            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ steps.tags.outputs.branch_tag }}
-            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ steps.tags.outputs.short_sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+#       - name: Build and Push to GHCR + ECR
+#         uses: docker/build-push-action@v6
+#         with:
+#           context: ./listservice
+#           file: ./listservice/Dockerfile.ecs
+#           push: true
+#           platforms: linux/amd64
+#           tags: |
+#             ghcr.io/${{ steps.ow.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.branch_tag }}
+#             ghcr.io/${{ steps.ow.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.short_sha }}
+#             ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ steps.tags.outputs.branch_tag }}
+#             ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ steps.tags.outputs.short_sha }}
+#           labels: |
+#             org.opencontainers.image.source=${{ github.repository }}
+#             org.opencontainers.image.revision=${{ github.sha }}
+#             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
+#           cache-from: type=gha
+#           cache-to: type=gha,mode=max
