@@ -1,113 +1,106 @@
-name: ECS Update (CI)
+name: Deploy to ECS (CI)
 
 on:
-  workflow_run:
-    workflows: ["Build and Publish Container"]
-    branches: [ main ]     # only when build ran on main
-    types: [ completed ]
-
-  # Optional manual trigger (still CI-only)
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Override image tag to deploy (default = latest SHA from last build)"
+      image_sha:
+        description: 'Image SHA to deploy (defaults to last build SHA)'
         required: false
-        default: ""
+  workflow_run:
+    workflows: ["Build and Publish Container"]
+    types: [completed]
+    branches: [main]   # deploy only after main builds
+
+permissions:
+  id-token: write
+  contents: read
 
 env:
   AWS_REGION: eu-central-1
-  AWS_ACCOUNT_ID: 920120424372
+  CLUSTER: listservice-ci-cluster
+  SERVICE: listservice-ci-svc
   ECR_REPO: listservice-global
-  ECS_CLUSTER: listservice-ci-cluster
-  ECS_SERVICE: listservice-ci-svc
-  CI_ROLE_ARN: arn:aws:iam::920120424372:role/ListService-CI-Deploy
+  AWS_ACCOUNT_ID: 920120424372
 
 jobs:
-  update:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     environment: ci
-    permissions:
-      id-token: write
-      contents: read
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.CI_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::920120424372:role/ListService-CI-Deploy
           aws-region: ${{ env.AWS_REGION }}
 
-      # When triggered by the build workflow, fetch its artifact
-      - name: Download image.txt from build run
-        if: ${{ github.event_name == 'workflow_run' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: container-image
-          path: .
-          run-id: ${{ github.event.workflow_run.id }}
-          repository: ${{ github.repository }}
-
-      - name: Select image
-        id: img
-        shell: bash
+      # Figure out which SHA to deploy:
+      # - if manually provided, use that
+      # - else pull the last successful workflow_run’s SHA
+      - name: Resolve image SHA
+        id: pick
         run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ] && [ -f image.txt ]; then
-            IMAGE="$(cat image.txt)"
+          if [ -n "${{ github.event.inputs.image_sha || '' }}" ]; then
+            echo "sha=${{ github.event.inputs.image_sha }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
           else
-            TAG="${{ github.event.inputs.tag }}"
-            if [ -z "$TAG" ]; then
-              echo "No artifact and no tag provided; aborting."
-              exit 1
-            fi
-            IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:$TAG"
+            echo "No SHA found. Provide image_sha input." >&2
+            exit 1
           fi
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
-          echo "Using image: $IMAGE"
 
-      - name: Get current task definition ARN
+      - name: Get current task definition
         id: cur
         run: |
-          arn=$(aws ecs describe-services \
-            --cluster "${{ env.ECS_CLUSTER }}" \
-            --services "${{ env.ECS_SERVICE }}" \
-            --query "services[0].taskDefinition" \
-            --output text)
-          echo "arn=$arn" >> $GITHUB_OUTPUT
-          echo "Current task def: $arn"
+          aws ecs describe-task-definition --task-definition "${{ env.SERVICE }}" \
+            --query 'taskDefinition' > td.json
+          cat td.json
 
-      - name: Register new task definition with new image
-        id: newdef
-        shell: bash
+      - name: Create new task definition with new image
+        id: new
         run: |
-          aws ecs describe-task-definition \
-            --task-definition "${{ steps.cur.outputs.arn }}" \
-            --query "taskDefinition" > current.json
+          IMG="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ steps.pick.outputs.sha }}"
+          echo "Using image: $IMG"
+          # patch container image (assumes 1 container named 'app' in the task def)
+          jq --arg IMG "$IMG" '
+            .containerDefinitions[0].image = $IMG
+          ' td.json > td-new.json
 
-          cat current.json \
-            | jq --arg IMAGE "${{ steps.img.outputs.image }}" '
-                .containerDefinitions[0].image = $IMAGE
-                | del(.status,.revision,.requiresAttributes,.compatibilities,.taskDefinitionArn,.registeredAt,.registeredBy)
-              ' > new.json
+          FAMILY=$(jq -r .family td.json)
+          aws ecs register-task-definition \
+            --family "$FAMILY" \
+            --requires-compatibilities FARGATE \
+            --cpu "$(jq -r .cpu td.json)" \
+            --memory "$(jq -r .memory td.json)" \
+            --network-mode "$(jq -r .networkMode td.json)" \
+            --execution-role-arn "$(jq -r .executionRoleArn td.json)" \
+            --task-role-arn "$(jq -r .taskRoleArn td.json)" \
+            --runtime-platform "$(jq -c .runtimePlatform td.json)" \
+            --container-definitions "file://td-new.json" \
+            --tags Key=ManagedBy,Value=GitHub > reg.json
 
-          new_arn=$(aws ecs register-task-definition --cli-input-json file://new.json \
-                     --query "taskDefinition.taskDefinitionArn" --output text)
-          echo "arn=$new_arn" >> $GITHUB_OUTPUT
-          echo "New task def: $new_arn"
+          NEW_ARN=$(jq -r .taskDefinition.taskDefinitionArn reg.json)
+          echo "new_td_arn=$NEW_ARN" >> $GITHUB_OUTPUT
 
-      - name: Update service to new task definition
+      - name: Update service to new task def
         run: |
           aws ecs update-service \
-            --cluster "${{ env.ECS_CLUSTER }}" \
-            --service "${{ env.ECS_SERVICE }}" \
-            --task-definition "${{ steps.newdef.outputs.arn }}"
+            --cluster "${{ env.CLUSTER }}" \
+            --service "${{ env.SERVICE }}" \
+            --task-definition "${{ steps.new.outputs.new_td_arn }}" \
+            --force-new-deployment \
+            --no-cli-pager
 
-      - name: Wait for service stability
+      - name: Wait for service stable
         run: |
           aws ecs wait services-stable \
-            --cluster "${{ env.ECS_CLUSTER }}" \
-            --services "${{ env.ECS_SERVICE }}"
-          echo "✅ CI service updated successfully"
+            --cluster "${{ env.CLUSTER }}" \
+            --services "${{ env.SERVICE }}"
+          echo "✅ CI service is stable."
+
+      - name: Quick smoke test
+        run: |
+          # Requires your CI Terraform to output alb_dns
+          # If not available here, you can curl the ALB you know.
+          echo "Deploy finished. (Run your external smoke tests here.)"
