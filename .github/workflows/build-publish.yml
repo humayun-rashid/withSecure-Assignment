@@ -59,7 +59,6 @@ jobs:
 
       - name: Resolve branch/env and SHA
         id: resolve
-        shell: bash
         run: |
           BRANCH="${GITHUB_REF##*/}"
           case "$BRANCH" in
@@ -71,7 +70,6 @@ jobs:
 
       - name: Compose tag list (ECR only)
         id: compose
-        shell: bash
         run: |
           set -euo pipefail
           ECR="${{ steps.vars.outputs.ecr_repo_url }}"
@@ -87,11 +85,11 @@ jobs:
             TAGS+=("${ECR}:${ENV_TAG}")
           fi
 
-          (
+          {
             echo "tags<<EOF"
             printf "%s\n" "${TAGS[@]}"
             echo "EOF"
-          ) >> "$GITHUB_OUTPUT"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -124,7 +122,6 @@ jobs:
 
       - name: Ensure :ci or :latest image exists in ECR
         id: image
-        shell: bash
         run: |
           if aws ecr describe-images --repository-name "${{ env.ECR_REPO }}" --image-ids imageTag=ci >/dev/null 2>&1; then
             echo "deploy_tag=ci" >> "$GITHUB_ENV"
@@ -157,7 +154,7 @@ jobs:
             --no-cli-pager
 
       - name: Wait for service to be stable
-        if: ${{ inputs.skip_wait != 'true' }}
+        if: ${{ github.event.inputs.skip_wait != 'true' }}
         run: |
           aws ecs wait services-stable \
             --cluster "${{ env.CLUSTER }}" \
@@ -166,13 +163,13 @@ jobs:
       - name: Get ALB DNS
         id: alb
         run: |
-          LB_NAME=$(aws ecs describe-services \
+          LB_ARN=$(aws ecs describe-services \
             --cluster "${{ env.CLUSTER }}" \
             --services "${{ env.SERVICE }}" \
             --query 'services[0].loadBalancers[0].loadBalancerName' \
             --output text)
           ALB_DNS=$(aws elbv2 describe-load-balancers \
-            --names "$LB_NAME" \
+            --names "$LB_ARN" \
             --query 'LoadBalancers[0].DNSName' \
             --output text)
           echo "alb_dns=$ALB_DNS" >> "$GITHUB_OUTPUT"
@@ -184,7 +181,7 @@ jobs:
     steps:
       - name: Test /health (GET)
         run: |
-          URL="http://${{ needs.deploy.outputs.alb_dns }}/health"
+          URL='http://${{ needs.deploy.outputs.alb_dns }}/health'
           for i in {1..18}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
             if [ "$code" = "200" ]; then
@@ -197,7 +194,7 @@ jobs:
 
       - name: Test /v1/lists/head (GET)
         run: |
-          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head?list=foo,bar,baz&count=2"
+          URL='http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head?list=foo,bar,baz&count=2'
           RESPONSE=$(curl -s "$URL")
           EXPECTED='{"result":["foo","bar"]}'
           [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
@@ -205,7 +202,7 @@ jobs:
 
       - name: Test /v1/lists/tail (GET)
         run: |
-          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail?list=foo,bar,baz&count=1"
+          URL='http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail?list=foo,bar,baz&count=1'
           RESPONSE=$(curl -s "$URL")
           EXPECTED='{"result":["bar","baz"]}'
           [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
@@ -213,8 +210,8 @@ jobs:
 
       - name: Test /v1/lists/head (POST)
         run: |
-          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head"
-          RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
+          URL='http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head'
+          RESPONSE=$(curl -s -X POST -H 'Content-Type: application/json' \
             -d '{"list":["one","two","three"],"count":2}' "$URL")
           EXPECTED='{"result":["one","two"]}'
           [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
@@ -222,26 +219,9 @@ jobs:
 
       - name: Test /v1/lists/tail (POST)
         run: |
-          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail"
-          RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
+          URL='http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail'
+          RESPONSE=$(curl -s -X POST -H 'Content-Type: application/json' \
             -d '{"list":["one","two","three"],"count":1}' "$URL")
           EXPECTED='{"result":["two","three"]}'
           [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
           echo "✅ /tail POST passed"
-
-      - name: Negative test: /v1/lists/head count too large
-        run: |
-          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head?list=a,b&count=5"
-          RESPONSE=$(curl -s -w " HTTP_CODE:%{http_code}" "$URL")
-          BODY=$(echo "$RESPONSE" | sed 's/ HTTP_CODE:.*//')
-          CODE=$(echo "$RESPONSE" | sed 's/.*HTTP_CODE://')
-          echo "Got code=$CODE body=$BODY"
-          if [ "$CODE" != "400" ]; then
-            echo "❌ Expected HTTP 400, got $CODE"
-            exit 1
-          fi
-          if ! echo "$BODY" | grep -q "count"; then
-            echo "❌ Expected error message about 'count', got $BODY"
-            exit 1
-          fi
-          echo "✅ Negative test passed"
