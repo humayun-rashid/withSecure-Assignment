@@ -3,10 +3,11 @@ name: Build and Publish Container
 on:
   push:
     branches: 
-      - "main"
-      - "staging"
-      - "ci"
-      - "*"   # catch-all for feature branches
+      - main
+      - staging
+      - ci
+      - "**"   # catch all feature branches safely
+  workflow_dispatch: {}
 
 env:
   AWS_REGION: eu-central-1
@@ -26,7 +27,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ----- Compute lowercase owner -----
+      # ----- Compute lowercase GHCR owner -----
       - name: Compute lowercase owner
         id: ow
         run: echo "owner_lc=${GITHUB_REPOSITORY_OWNER@L}" >> "$GITHUB_OUTPUT"
@@ -43,7 +44,7 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::920120424372:role/ListService-Global-Deploy
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/ListService-Global-Deploy
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
@@ -55,18 +56,17 @@ jobs:
       - name: Set dynamic tags
         id: tags
         run: |
-          BRANCH="${GITHUB_REF##*/}"
-          TAGS=""
+          BRANCH="${GITHUB_REF_NAME}"   # short branch name
+          SAFE_BRANCH=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | tr '/' '-')
 
-          case "$BRANCH" in
-            main) TAGS="latest" ;;
-            staging) TAGS="staging" ;;
-            ci) TAGS="ci" ;;
-            *) TAGS="$BRANCH" ;;
+          case "$SAFE_BRANCH" in
+            main) TAG="latest" ;;
+            staging) TAG="staging" ;;
+            ci) TAG="ci" ;;
+            *) TAG="$SAFE_BRANCH" ;;
           esac
 
-          echo "tags=$TAGS" >> $GITHUB_OUTPUT
-          echo "branch_tag=$BRANCH" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       # ----- Build & Push -----
       - name: Set up Docker Buildx
@@ -80,11 +80,9 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            # GHCR
-            ghcr.io/${{ steps.ow.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.tags }}
+            ghcr.io/${{ steps.ow.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.tag }}
             ghcr.io/${{ steps.ow.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            # ECR
-            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ steps.tags.outputs.tags }}
+            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ steps.tags.outputs.tag }}
             ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
