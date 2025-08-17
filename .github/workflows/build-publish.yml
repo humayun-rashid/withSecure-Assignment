@@ -1,4 +1,4 @@
-name: Build and Publish Container
+name: Build and Publish to ECR
 
 on:
   push:
@@ -6,7 +6,34 @@ on:
       - main
       - ci
       - staging
-      - "*"   # feature branches
+      - "*"        # feature branches
+  workflow_dispatch:
+    inputs:
+      env_tag:
+        description: "Tag to apply (auto=derive from branch)"
+        type: choice
+        required: false
+        default: auto
+        options: [auto, latest, ci, staging, custom]
+      custom_tag:
+        description: "Custom tag value when env_tag=custom"
+        type: string
+        required: false
+        default: ""
+      sha_tag:
+        description: "Override image SHA tag (defaults to commit SHA)"
+        type: string
+        required: false
+        default: ""
+      push_latest_ecr:
+        description: "Push :latest to ECR (only if repo is MUTABLE)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  id-token: write     # for AWS OIDC
+  contents: read
 
 env:
   AWS_REGION: eu-central-1
@@ -17,23 +44,17 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write   # GHCR
-      id-token: write   # AWS OIDC
 
     outputs:
-      sha_tag: ${{ steps.tags.outputs.sha_tag }}    # expose to downstream jobs
-      env_tag: ${{ steps.tags.outputs.env_tag }}    # "latest" | "ci" | "staging" | "<branch>"
+      sha_tag: ${{ steps.resolve.outputs.sha_tag }}
+      env_tag: ${{ steps.resolve.outputs.env_tag }}
       ecr_repo_url: ${{ steps.vars.outputs.ecr_repo_url }}
+      ecr_image_uri_sha: ${{ steps.compose.outputs.ecr_image_uri_sha }}
+      ecr_image_uri_latest: ${{ steps.compose.outputs.ecr_image_uri_latest }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Compute lowercase owner
-        id: ow
-        run: echo "owner_lc=${GITHUB_REPOSITORY_OWNER@L}" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -46,26 +67,44 @@ jobs:
           aws ecr get-login-password --region $AWS_REGION \
             | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set tag values
-        id: tags
+      - name: Resolve tags (env & sha)
+        id: resolve
         shell: bash
         run: |
-          BRANCH="${GITHUB_REF##*/}"
-          case "$BRANCH" in
-            main)    ENV_TAG="latest"  ;;
-            ci)      ENV_TAG="ci"      ;;
-            staging) ENV_TAG="staging" ;;
-            *)       ENV_TAG="$BRANCH" ;;
-          esac
-          echo "env_tag=$ENV_TAG"  >> $GITHUB_OUTPUT
-          echo "sha_tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+          # Resolve env tag
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.env_tag }}" != "auto" ]]; then
+            case "${{ inputs.env_tag }}" in
+              latest|ci|staging) ENV_TAG="${{ inputs.env_tag }}" ;;
+              custom) ENV_TAG="${{ inputs.custom_tag }}" ;;
+              *) echo "Invalid env_tag"; exit 1 ;;
+            esac
+          else
+            BRANCH="${GITHUB_REF##*/}"
+            case "$BRANCH" in
+              main)    ENV_TAG="latest" ;;
+              ci)      ENV_TAG="ci" ;;
+              staging) ENV_TAG="staging" ;;
+              *)       ENV_TAG="$BRANCH" ;;
+            esac
+          fi
+
+          # Resolve sha tag
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.sha_tag }}" ]]; then
+            SHA_TAG="${{ inputs.sha_tag }}"
+          else
+            SHA_TAG="${GITHUB_SHA}"
+          fi
+
+          echo "env_tag=$ENV_TAG"  >> "$GITHUB_OUTPUT"
+          echo "sha_tag=$SHA_TAG"  >> "$GITHUB_OUTPUT"
+
+          # Latest toggle
+          PUSH_LATEST_ECR="${{ inputs.push_latest_ecr }}"
+          if [[ "${GITHUB_REF##*/}" == "main" && "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            # Set true ONLY if repo is MUTABLE
+            PUSH_LATEST_ECR=true
+          fi
+          echo "push_latest_ecr=$PUSH_LATEST_ECR" >> "$GITHUB_OUTPUT"
 
       - name: Set common vars
         id: vars
@@ -75,20 +114,29 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Build & push to BOTH registries:
-      # - GHCR: :<env_tag> and :<sha>
-      # - ECR: always :<sha>; and :latest only when branch == main (repo is MUTABLE)
-      - name: Build and Push
+      - name: Compose tag list
+        id: compose
+        shell: bash
+        run: |
+          ECR_SHA="${{ steps.vars.outputs.ecr_repo_url }}:${{ steps.resolve.outputs.sha_tag }}"
+          echo "ecr_image_uri_sha=$ECR_SHA" >> "$GITHUB_OUTPUT"
+
+          TAGS=("$ECR_SHA")
+          if [[ "${{ steps.resolve.outputs.push_latest_ecr }}" == "true" ]]; then
+            ECR_LATEST="${{ steps.vars.outputs.ecr_repo_url }}:latest"
+            TAGS+=("$ECR_LATEST")
+            echo "ecr_image_uri_latest=$ECR_LATEST" >> "$GITHUB_OUTPUT"
+          fi
+
+          printf "tags<<'EOF'\n%s\nEOF\n" "$(printf "%s\n" "${TAGS[@]}")" >> "$GITHUB_OUTPUT"
+
+      - name: Build and Push to ECR
         uses: docker/build-push-action@v6
         with:
           context: ./listservice
           file: ./listservice/Dockerfile.ecs
-          push: true
           platforms: linux/amd64
-          tags: |
-            ghcr.io/${{ steps.ow.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.env_tag }}
-            ghcr.io/${{ steps.ow.outputs.owner_lc }}/${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.sha_tag }}
-            ${{ steps.vars.outputs.ecr_repo_url }}:${{ steps.tags.outputs.sha_tag }}
-            ${{ github.ref_name == 'main' && format('{0}:latest', steps.vars.outputs.ecr_repo_url) || '' }}
+          push: true
+          tags: ${{ steps.compose.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

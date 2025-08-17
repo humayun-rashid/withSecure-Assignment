@@ -19,6 +19,7 @@ env:
   AWS_REGION: eu-central-1
   CLUSTER: listservice-ci-cluster
   SERVICE: listservice-ci-svc
+  CONTAINER_NAME: app
   ECR_REPO: listservice-global
   AWS_ACCOUNT_ID: 920120424372
 
@@ -35,9 +36,7 @@ jobs:
           role-to-assume: arn:aws:iam::920120424372:role/ListService-CI-Deploy
           aws-region: ${{ env.AWS_REGION }}
 
-      # Figure out which SHA to deploy:
-      # - if manually provided, use that
-      # - else pull the last successful workflow_run’s SHA
+      # Figure out which SHA to deploy
       - name: Resolve image SHA
         id: pick
         run: |
@@ -50,39 +49,62 @@ jobs:
             exit 1
           fi
 
+      # Get current task definition ARN from service
       - name: Get current task definition
         id: cur
         run: |
-          aws ecs describe-task-definition --task-definition "${{ env.SERVICE }}" \
-            --query 'taskDefinition' > td.json
+          TD_ARN=$(aws ecs describe-services \
+            --cluster "${{ env.CLUSTER }}" \
+            --services "${{ env.SERVICE }}" \
+            --query "services[0].taskDefinition" \
+            --output text)
+          echo "task_def_arn=$TD_ARN" >> $GITHUB_OUTPUT
+          echo "Current task def: $TD_ARN"
+
+      # Download task definition JSON
+      - name: Download task definition JSON
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ steps.cur.outputs.task_def_arn }}" \
+            --query "taskDefinition" > td.json
           cat td.json
 
+      # Create new task definition with new image
       - name: Create new task definition with new image
         id: new
         run: |
           IMG="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:${{ steps.pick.outputs.sha }}"
           echo "Using image: $IMG"
-          # patch container image (assumes 1 container named 'app' in the task def)
-          jq --arg IMG "$IMG" '
-            .containerDefinitions[0].image = $IMG
-          ' td.json > td-new.json
 
-          FAMILY=$(jq -r .family td.json)
+          # Replace container image by container name
+          NEW_TD_PAYLOAD="$(jq --arg IMG "$IMG" --arg NAME "${{ env.CONTAINER_NAME }}" '
+            .containerDefinitions |= map(if .name == $NAME then .image = $IMG else . end)
+            | {
+                family,
+                taskRoleArn,
+                executionRoleArn,
+                networkMode,
+                containerDefinitions,
+                volumes,
+                placementConstraints,
+                requiresCompatibilities,
+                cpu,
+                memory,
+                runtimePlatform,
+                ephemeralStorage
+              }
+          ' td.json)"
+
+          echo "$NEW_TD_PAYLOAD" > td-new.json
+
           aws ecs register-task-definition \
-            --family "$FAMILY" \
-            --requires-compatibilities FARGATE \
-            --cpu "$(jq -r .cpu td.json)" \
-            --memory "$(jq -r .memory td.json)" \
-            --network-mode "$(jq -r .networkMode td.json)" \
-            --execution-role-arn "$(jq -r .executionRoleArn td.json)" \
-            --task-role-arn "$(jq -r .taskRoleArn td.json)" \
-            --runtime-platform "$(jq -c .runtimePlatform td.json)" \
-            --container-definitions "file://td-new.json" \
-            --tags Key=ManagedBy,Value=GitHub > reg.json
+            --cli-input-json file://td-new.json > reg.json
 
           NEW_ARN=$(jq -r .taskDefinition.taskDefinitionArn reg.json)
           echo "new_td_arn=$NEW_ARN" >> $GITHUB_OUTPUT
+          echo "Registered new TD: $NEW_ARN"
 
+      # Update service
       - name: Update service to new task def
         run: |
           aws ecs update-service \
@@ -92,6 +114,7 @@ jobs:
             --force-new-deployment \
             --no-cli-pager
 
+      # Wait until stable
       - name: Wait for service stable
         run: |
           aws ecs wait services-stable \
@@ -99,8 +122,7 @@ jobs:
             --services "${{ env.SERVICE }}"
           echo "✅ CI service is stable."
 
+      # Optional smoke test
       - name: Quick smoke test
         run: |
-          # Requires your CI Terraform to output alb_dns
-          # If not available here, you can curl the ALB you know.
-          echo "Deploy finished. (Run your external smoke tests here.)"
+          echo "Deploy finished. Run smoke tests here (curl ALB /health, etc)."
