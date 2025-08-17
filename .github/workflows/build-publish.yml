@@ -1,4 +1,4 @@
-name: Build, Publish & Deploy (ECS)
+name: Build, Publish, Deploy & Test (ECS)
 
 on:
   push:
@@ -9,15 +9,8 @@ on:
       - "*" # feature branches
   workflow_dispatch:
     inputs:
-      alb_dns:
-        description: "Optional ALB DNS for smoke test (e.g., listservice-ci-alb-xxxx.eu-central-1.elb.amazonaws.com)"
-        required: false
       skip_wait:
         description: "Skip waiting for service to stabilize"
-        required: false
-        default: "false"
-      push_latest:
-        description: "Also push :latest (for manual runs)"
         required: false
         default: "false"
 
@@ -94,10 +87,6 @@ jobs:
             TAGS+=("${ECR}:${ENV_TAG}")
           fi
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.push_latest }}" == "true" ]]; then
-            TAGS+=("${ECR}:latest")
-          fi
-
           {
             echo "tags<<EOF"
             printf "%s\n" "${TAGS[@]}"
@@ -123,6 +112,9 @@ jobs:
     needs: build-and-push
     environment: ci
 
+    outputs:
+      alb_dns: ${{ steps.alb.outputs.alb_dns }}
+
     steps:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -134,23 +126,18 @@ jobs:
         id: image
         shell: bash
         run: |
-          set -euo pipefail
           if aws ecr describe-images --repository-name "${{ env.ECR_REPO }}" --image-ids imageTag=ci >/dev/null 2>&1; then
-            echo "✅ Found ECR image tag :ci."
             echo "deploy_tag=ci" >> "$GITHUB_ENV"
           elif aws ecr describe-images --repository-name "${{ env.ECR_REPO }}" --image-ids imageTag=latest >/dev/null 2>&1; then
-            echo "✅ Found ECR image tag :latest."
             echo "deploy_tag=latest" >> "$GITHUB_ENV"
           else
-            echo "❌ Neither ':ci' nor ':latest' found in ${{ env.ECR_REPO }}."
+            echo "❌ No deployable image found"
             exit 1
           fi
 
       - name: Capture current desiredCount
         id: count
-        shell: bash
         run: |
-          set -euo pipefail
           CUR_COUNT=$(aws ecs describe-services \
             --cluster "${{ env.CLUSTER }}" \
             --services "${{ env.SERVICE }}" \
@@ -159,44 +146,102 @@ jobs:
             CUR_COUNT=1
           fi
           echo "desired_count=$CUR_COUNT" >> "$GITHUB_OUTPUT"
-          echo "Current desiredCount: $CUR_COUNT"
 
-      - name: Force new deployment (keep desiredCount)
-        shell: bash
+      - name: Force new deployment
         run: |
-          set -euo pipefail
           aws ecs update-service \
             --cluster "${{ env.CLUSTER }}" \
             --service "${{ env.SERVICE }}" \
             --desired-count "${{ steps.count.outputs.desired_count }}" \
             --force-new-deployment \
             --no-cli-pager
-          echo "🚀 Forced new deployment for ${{ env.SERVICE }} with desiredCount=${{ steps.count.outputs.desired_count }} using tag=${{ env.deploy_tag }}"
 
       - name: Wait for service to be stable
         if: ${{ inputs.skip_wait != 'true' }}
-        shell: bash
         run: |
-          set -euo pipefail
           aws ecs wait services-stable \
             --cluster "${{ env.CLUSTER }}" \
             --services "${{ env.SERVICE }}"
-          echo "✅ Service is stable."
 
-      - name: Optional smoke test /health (HTTP 200)
-        if: ${{ inputs.alb_dns != '' }}
-        shell: bash
+      - name: Get ALB DNS
+        id: alb
         run: |
-          set -euo pipefail
-          URL="http://${{ inputs.alb_dns }}/health"
-          echo "Smoking: $URL"
+          LB_NAME=$(aws ecs describe-services \
+            --cluster "${{ env.CLUSTER }}" \
+            --services "${{ env.SERVICE }}" \
+            --query 'services[0].loadBalancers[0].loadBalancerName' \
+            --output text)
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names "$LB_NAME" \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text)
+          echo "alb_dns=$ALB_DNS" >> "$GITHUB_OUTPUT"
+
+  test:
+    runs-on: ubuntu-latest
+    needs: deploy
+
+    steps:
+      - name: Test /health (GET)
+        run: |
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/health"
           for i in {1..18}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
             if [ "$code" = "200" ]; then
               echo "✅ /health OK"
-              exit 0
+              break
             fi
             echo "Attempt $i: got $code; retrying in 10s..."
             sleep 10
           done
-          echo "❌ /health never returned 200"; exit 1
+
+      - name: Test /v1/lists/head (GET)
+        run: |
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head?list=foo,bar,baz&count=2"
+          RESPONSE=$(curl -s "$URL")
+          EXPECTED='{"result":["foo","bar"]}'
+          [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
+          echo "✅ /head GET passed"
+
+      - name: Test /v1/lists/tail (GET)
+        run: |
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail?list=foo,bar,baz&count=1"
+          RESPONSE=$(curl -s "$URL")
+          EXPECTED='{"result":["bar","baz"]}'
+          [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
+          echo "✅ /tail GET passed"
+
+      - name: Test /v1/lists/head (POST)
+        run: |
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head"
+          RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
+            -d '{"list":["one","two","three"],"count":2}' "$URL")
+          EXPECTED='{"result":["one","two"]}'
+          [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
+          echo "✅ /head POST passed"
+
+      - name: Test /v1/lists/tail (POST)
+        run: |
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail"
+          RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
+            -d '{"list":["one","two","three"],"count":1}' "$URL")
+          EXPECTED='{"result":["two","three"]}'
+          [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
+          echo "✅ /tail POST passed"
+
+      - name: Negative test: /v1/lists/head count too large
+        run: |
+          URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/head?list=a,b&count=5"
+          RESPONSE=$(curl -s -w " HTTP_CODE:%{http_code}" "$URL")
+          BODY=$(echo "$RESPONSE" | sed 's/ HTTP_CODE:.*//')
+          CODE=$(echo "$RESPONSE" | sed 's/.*HTTP_CODE://')
+          echo "Got code=$CODE body=$BODY"
+          if [ "$CODE" != "400" ]; then
+            echo "❌ Expected HTTP 400, got $CODE"
+            exit 1
+          fi
+          if ! echo "$BODY" | grep -q "count"; then
+            echo "❌ Expected error message about 'count', got $BODY"
+            exit 1
+          fi
+          echo "✅ Negative test passed"
