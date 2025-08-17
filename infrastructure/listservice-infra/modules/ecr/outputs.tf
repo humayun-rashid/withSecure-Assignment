@@ -30,7 +30,7 @@ output "login_command" {
 
 output "push_example" {
   description = "Example tag/push commands"
-  value       = join("\n", [
+  value = join("\n", [
     "docker build -t ${aws_ecr_repository.this.name}:<tag> .",
     "docker tag ${aws_ecr_repository.this.name}:<tag> ${aws_ecr_repository.this.repository_url}:<tag>",
     "docker push ${aws_ecr_repository.this.repository_url}:<tag>"

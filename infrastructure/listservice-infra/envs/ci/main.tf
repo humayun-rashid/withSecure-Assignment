@@ -28,9 +28,9 @@ module "alb" {
   tags              = local.tags
 }
 module "ecs" {
-  source             = "../../modules/ecs"
-  name               = local.name
-  vpc_id             = module.network.vpc_id
+  source = "../../modules/ecs"
+  name   = local.name
+  vpc_id = module.network.vpc_id
   # use PUBLIC subnets for CI so the task has internet via the IGW
   private_subnet_ids = module.network.public_subnet_ids
   service_sg_ingress = [module.alb.alb_sg_id]

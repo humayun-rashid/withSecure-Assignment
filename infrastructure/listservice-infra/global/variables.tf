@@ -31,7 +31,7 @@ variable "lifecycle_keep" {
 variable "tags" {
   description = "Tags to apply to resources"
   type        = map(string)
-  default     = {
+  default = {
     Project = "ListService"
     Env     = "global"
     Managed = "terraform"
