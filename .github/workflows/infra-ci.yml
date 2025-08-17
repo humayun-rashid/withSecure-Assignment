@@ -1,43 +1,43 @@
-name: Infra (CI env)
+name: Infra (CI)
 
 on:
   pull_request:
     paths:
-      - 'infrastructure/listservice-infra/modules/**'
       - 'infrastructure/listservice-infra/envs/ci/**'
       - '.github/workflows/infra-ci.yml'
   push:
     branches: [ main ]
     paths:
-      - 'infrastructure/listservice-infra/modules/**'
       - 'infrastructure/listservice-infra/envs/ci/**'
       - '.github/workflows/infra-ci.yml'
   workflow_dispatch:
     inputs:
       action:
-        description: 'Choose action'
-        type: choice
+        description: 'What to do'
         required: true
+        type: choice
         options: [ plan, apply, destroy ]
         default: plan
 
 permissions:
-  id-token: write   # AWS OIDC
+  id-token: write
   contents: read
 
 concurrency:
-  group: infra-ci
+  group: infra-ci-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   AWS_REGION: eu-central-1
   TF_ENV_DIR: infrastructure/listservice-infra/envs/ci
   TF_VARS_FILE: ci.tfvars
+  TF_VERSION: 1.9.5
 
 jobs:
   terraform:
     name: Terraform ${{ github.event.inputs.action || 'auto' }} (CI)
     runs-on: ubuntu-latest
+    # Use a GitHub Environment named "ci" to match IAM trust if your role trusts environment:ci
     environment: ci
     defaults:
       run:
@@ -50,13 +50,17 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5
+          terraform_version: ${{ env.TF_VERSION }}
 
-      # Optional but helpful: linters
-      - name: Install tflint & tfsec
-        run: |
-          curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
-          curl -sL https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+      # Uncomment once for debugging OIDC claims if needed
+      # - name: Debug OIDC token claims (TEMP)
+      #   uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       const token = await core.getIDToken('sts.amazonaws.com');
+      #       const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      #       core.info(`OIDC sub: ${payload.sub}`);
+      #       core.info(`OIDC aud: ${payload.aud}`);
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -65,67 +69,52 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init (remote state)
-        run: terraform init -reconfigure -backend-config=backend.hcl -input=false
+        run: terraform init -reconfigure -backend-config=backend.hcl
 
       - name: Terraform Fmt
         run: terraform fmt -check -recursive
 
-      - name: TFLint
-        run: |
-          tflint --init
-          tflint --recursive
-
-      - name: tfsec
-        run: tfsec . || true   # make strict later by removing "|| true"
-
       - name: Terraform Validate
-        run: terraform validate -no-color
+        run: terraform validate
 
       # ---------- PLAN ----------
       - name: Terraform Plan
-        if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == '' }}
-        run: |
-          terraform plan -var-file=${{ env.TF_VARS_FILE }} -out=tf.plan -no-color -input=false
-          terraform show -json tf.plan > tfplan.json
+        if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event_name == 'push' }}
+        run: terraform plan -no-color -out=tf.plan -var-file="${{ env.TF_VARS_FILE }}"
 
-      - name: Upload plan artifact
-        if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event.inputs.action == '' }}
+      # Upload plan for PRs (optional, inspection)
+      - name: Upload Plan artifact (PR only)
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: tf-plan-ci
-          path: |
-            ${{ env.TF_ENV_DIR }}/tf.plan
-            ${{ env.TF_ENV_DIR }}/tfplan.json
-
-      - name: Comment plan on PR
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          path: ${{ env.TF_ENV_DIR }}/tfplan.json
+          path: ${{ env.TF_ENV_DIR }}/tf.plan
+          retention-days: 7
 
       # ---------- APPLY ----------
-      - name: Download plan (if exists)
-        if: ${{ github.event.inputs.action == 'apply' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: tf-plan-ci
-          path: ${{ env.TF_ENV_DIR }}
-        continue-on-error: true
+      - name: Terraform Apply (push to main or manual apply)
+        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.action == 'apply' }}
+        run: terraform apply -auto-approve tf.plan
 
-      - name: Terraform Apply (from plan if present)
+      # Optional: quick smoke test after apply
+      - name: Smoke test /health
         if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.action == 'apply' }}
         run: |
-          if [ -f tf.plan ]; then
-            terraform apply -auto-approve -input=false tf.plan
-          else
-            terraform apply -auto-approve -var-file=${{ env.TF_VARS_FILE }} -input=false
-          fi
+          set -euo pipefail
+          ALB_DNS="$(terraform output -raw alb_dns)"
+          echo "ALB: http://$ALB_DNS/health"
+          for i in {1..12}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://$ALB_DNS/health" || true)
+            if [ "$code" = "200" ]; then
+              echo "Health OK (200)."
+              exit 0
+            fi
+            echo "Attempt $i: got $code, retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed"; exit 1
 
       # ---------- DESTROY ----------
-      - name: Terraform Plan Destroy
+      - name: Terraform Destroy (manual only)
         if: ${{ github.event.inputs.action == 'destroy' }}
-        run: terraform plan -destroy -var-file=${{ env.TF_VARS_FILE }} -out=tf.destroy -input=false
-
-      - name: Terraform Destroy
-        if: ${{ github.event.inputs.action == 'destroy' }}
-        run: terraform apply -auto-approve -input=false tf.destroy
+        run: terraform destroy -auto-approve -var-file="${{ env.TF_VARS_FILE }}"

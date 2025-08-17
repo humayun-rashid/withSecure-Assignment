@@ -1,4 +1,5 @@
 region          = "eu-central-1"
 aws_profile     = "sandbox"
 env             = "ci"
-container_image = "public.ecr.aws/nginx/nginx:latest"
+# container_image = "public.ecr.aws/nginx/nginx:latest"
+container_image = "920120424372.dkr.ecr.eu-central-1.amazonaws.com/listservice-global:latest"
