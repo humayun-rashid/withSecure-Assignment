@@ -1,0 +1,113 @@
+name: Deploy to ECS (CI – latest)
+
+on:
+  # Auto-deploy after a successful image build
+  workflow_run:
+    workflows: ["Build and Publish (ECR)"]
+    types: [completed]
+    branches: [main, ci]
+
+  # Manual run any time
+  workflow_dispatch:
+    inputs:
+      alb_dns:
+        description: "Optional ALB DNS for smoke test (e.g., listservice-ci-alb-xxxx.eu-central-1.elb.amazonaws.com)"
+        required: false
+      skip_wait:
+        description: "Skip waiting for service to stabilize"
+        required: false
+        default: "false"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ecs-ci-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-central-1
+  CLUSTER: listservice-ci-cluster
+  SERVICE: listservice-ci-svc
+  ECR_REPO: listservice-global
+  AWS_ACCOUNT_ID: 920120424372
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: ci
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::920120424372:role/ListService-CI-Deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure :ci image exists in ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecr describe-images \
+            --repository-name "${{ env.ECR_REPO }}" \
+            --image-ids imageTag=ci >/dev/null \
+          || { echo "❌ ECR tag ':ci' not found in ${{ env.ECR_REPO }}. Make sure your build workflow pushes :ci."; exit 1; }
+          echo "✅ Found ECR image tag :ci."
+
+      - name: Capture current desiredCount
+        id: count
+        shell: bash
+        run: |
+          set -euo pipefail
+          CUR_COUNT=$(aws ecs describe-services \
+            --cluster "${{ env.CLUSTER }}" \
+            --services "${{ env.SERVICE }}" \
+            --query 'services[0].desiredCount' --output text)
+          # Fallback to 1 if API returns None/empty (shouldn't happen, but be safe)
+          if [ "$CUR_COUNT" = "None" ] || [ -z "$CUR_COUNT" ]; then
+            CUR_COUNT=1
+          fi
+          echo "desired_count=$CUR_COUNT" >> "$GITHUB_OUTPUT"
+          echo "Current desiredCount: $CUR_COUNT"
+
+      - name: Force new deployment (keep desiredCount)
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${{ env.CLUSTER }}" \
+            --service "${{ env.SERVICE }}" \
+            --desired-count "${{ steps.count.outputs.desired_count }}" \
+            --force-new-deployment \
+            --no-cli-pager
+          echo "🚀 Forced new deployment for ${{ env.SERVICE }} with desiredCount=${{ steps.count.outputs.desired_count }}"
+
+      - name: Wait for service to be stable
+        if: ${{ inputs.skip_wait != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs wait services-stable \
+            --cluster "${{ env.CLUSTER }}" \
+            --services "${{ env.SERVICE }}"
+          echo "✅ Service is stable."
+
+      - name: Optional smoke test /health (HTTP 200)
+        if: ${{ inputs.alb_dns != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="http://${{ inputs.alb_dns }}/health"
+          echo "Smoking: $URL"
+          for i in {1..18}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
+            if [ "$code" = "200" ]; then
+              echo "✅ /health OK"
+              exit 0
+            fi
+            echo "Attempt $i: got $code; retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ /health never returned 200"; exit 1
