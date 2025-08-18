@@ -15,8 +15,7 @@ This repository defines the **infrastructure-as-code (IaC)** for **ListService**
 
    * [Global](#global)
    * [CI](#ci)
-   * [Staging](#staging)
-   * [Production](#production)
+
 4. [State Bootstrapping](#-state-bootstrapping)
 5. [OIDC & IAM Setup](#-oidc--iam-setup)
 6. [Modules](#-modules)
@@ -92,23 +91,6 @@ GitHub Actions (OIDC)
 * Health check → [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/health](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/health)
 * Swagger UI → [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/docs](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/docs)
 * ReDoc → [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/redoc](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/redoc)
-
----
-
-### **Staging**
-
-* Location: `listservice-infra/envs/staging/`
-* Stable **pre-production** environment for UAT & integration testing
-* HTTPS-enabled ALB + private subnets
-
----
-
-### **Production**
-
-* Location: `listservice-infra/envs/prod/`
-* Full **production deployment**
-* Separate backend state (`listservice/prod/terraform.tfstate`)
-* HTTPS, scaling policies, monitoring, and hardened network
 
 ---
 
