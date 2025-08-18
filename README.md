@@ -3,7 +3,7 @@
 
 # 📦 ListService – Serverless Application
 
-[![Build, Publish, Deploy & Test](https://github.com/humayun-rashid/withSecure-Assignment/actions/workflows/build-publish-deploy-test.yml/badge.svg)](https://github.com/humayun-rashid/withSecure-Assignment/actions/workflows/build-publish-deploy-test.yml)
+[![Build, Publish, Deploy & Test](https://github.com/humayun-rashid/withSecure-Assignment/actions/workflows/build-publish.yml/badge.svg)](https://github.com/humayun-rashid/withSecure-Assignment/actions/workflows/build-publish-deploy-test.yml)
 [![Infra CI](https://github.com/humayun-rashid/withSecure-Assignment/actions/workflows/infra-ci.yml/badge.svg)](https://github.com/humayun-rashid/withSecure-Assignment/actions/workflows/infra-ci.yml)
 [![Health](https://img.shields.io/website?url=http%3A%2F%2Flistservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com%2Fhealth\&label=API%20Health)](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/health)
 [![Docs](https://img.shields.io/badge/docs-Swagger-blue)](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/docs)
