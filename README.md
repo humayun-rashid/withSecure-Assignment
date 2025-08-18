@@ -12,6 +12,11 @@
 The **ListService** project is a serverless application deployed on **AWS**, built with **FastAPI**, **Docker**, **Terraform**, and **GitHub Actions**.
 It demonstrates cloud-native backend design, infrastructure as code, and CI/CD automation.
 
+📚 For full detailed design, implementation, and usage guides:
+
+* 👉 [Backend Documentation](listservice-backend/README.md)
+* 👉 [Infrastructure Documentation](infrastructure/README.md)
+
 ---
 
 ## 📑 Table of Contents
@@ -46,14 +51,9 @@ It demonstrates cloud-native backend design, infrastructure as code, and CI/CD a
 
 #### 🔗 Live CI Environment (AWS ECS Fargate, eu-central-1)
 
-* **Health check** →
-  [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/health](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/health)
-
-* **Swagger UI** →
-  [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/docs](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/docs)
-
-* **ReDoc** →
-  [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/redoc](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/redoc)
+* **Health check** → [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/health](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/health)
+* **Swagger UI** → [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/docs](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/docs)
+* **ReDoc** → [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/redoc](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/redoc)
 
 ---
 
@@ -62,7 +62,6 @@ It demonstrates cloud-native backend design, infrastructure as code, and CI/CD a
 * Defined entirely in **Terraform**, structured for **multi-environment deployment**:
 
   * **CI**, **Staging**, **Production**
-
 * Modular design:
 
   * **ECR** (image registry)
@@ -86,25 +85,50 @@ listservice-infra/
 
 ### ⚙️ CI/CD Workflows
 
-The project uses **GitHub Actions** with three core workflows:
+We use **GitHub Actions** for both application delivery and infrastructure management.
 
-* **[Build & Publish (ECR)](.github/workflows/build-publish.yml)** → builds and pushes Docker images
-* **[Deploy to ECS (CI)](.github/workflows/deploy-ecs.yml)** → deploys the latest image to ECS Fargate
-* **[Build, Publish, Deploy & Test (ECS)](.github/workflows/build-publish-deploy-test.yml)** → end-to-end build, deploy, and API test pipeline
+#### 🟦 Application Workflow
 
-#### 🔗 Last Workflow Runs
+* **[Build, Publish, Deploy & Test (ECS)](.github/workflows/build-publish-deploy-test.yml)**
+  A single pipeline that:
 
-* **Last Build, Publish, Deploy & Test:**
-  [GitHub Actions Run #17028246479](https://github.com/humayun-rashid/withSecure-Assignment/actions/runs/17028246479)
+  1. **Builds & pushes** the Docker image to ECR (tags: SHA, `ci`, `latest`, branch).
+  2. **Deploys** to ECS Fargate (`listservice-ci-svc`).
+  3. **Waits** for ECS service to stabilize.
+  4. **Discovers** the ALB DNS dynamically.
+  5. **Runs API tests** (`/health`, `/head`, `/tail` GET + POST).
+  6. **Fails fast** if any step breaks.
 
-* **Last Infra CI Run:**
-  [Infra CI Workflow](https://github.com/humayun-rashid/withSecure-Assignment/actions/workflows/infra-ci.yml)
+ASCII job timeline:
+
+```
+ build-and-push ──► deploy ──► test
+```
+
+🔗 **Last Run:** [#17028246479](https://github.com/humayun-rashid/withSecure-Assignment/actions/runs/17028246479)
+
+---
+
+#### 🟩 Infrastructure Workflows
+
+* **[Infra (CI)](.github/workflows/infra-ci.yml)**
+  Manages **CI environment infrastructure** (`envs/ci/`) with Terraform.
+
+  * Triggers on changes to CI env code.
+  * Supports `plan`, `apply`, `destroy`.
+  * Smoke tests `/health` after apply.
+
+  🔗 [Workflow Page](https://github.com/humayun-rashid/withSecure-Assignment/actions/workflows/infra-ci.yml)
+
+* **[Infra (GLOBAL)](.github/workflows/infra-global.yml)**
+  Manages **global/shared infrastructure** (e.g., ECR repos, IAM roles, networking).
+
+  * Supports `plan`, `apply`, `destroy`.
+  * Uploads plan artifacts on PRs.
 
 ---
 
 ## 🔮 High-Level Architecture
-
-Here’s the end-to-end architecture (ASCII diagram):
 
 ```
                +-------------------+
@@ -146,10 +170,9 @@ Here’s the end-to-end architecture (ASCII diagram):
 
 * [Backend Documentation](listservice-backend/README.md)
 * [Infrastructure Documentation](infrastructure/README.md)
-* [Build & Publish Workflow](.github/workflows/build-publish.yml)
-* [Deploy ECS Workflow](.github/workflows/deploy-ecs.yml)
 * [Build, Publish, Deploy & Test Workflow](.github/workflows/build-publish-deploy-test.yml)
-* [Infra CI Workflow](https://github.com/humayun-rashid/withSecure-Assignment/actions/workflows/infra-ci.yml)
+* [Infra CI Workflow](.github/workflows/infra-ci.yml)
+* [Infra GLOBAL Workflow](.github/workflows/infra-global.yml)
 
 ---
 
@@ -162,5 +185,4 @@ Here’s the end-to-end architecture (ASCII diagram):
 * **CI/CD** → GitHub Actions (Build → Publish → Deploy → Test)
 
 ---
-
 
