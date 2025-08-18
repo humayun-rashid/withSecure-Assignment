@@ -245,6 +245,6 @@ jobs:
           URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail"
           RESPONSE=$(curl -s -X POST -H 'Content-Type: application/json' \
             -d '{"list":["one","two","three"],"count":1}' "$URL")
-          EXPECTED='{"result":["two","three"]}'
+          EXPECTED='{"result":["three"]}'
           [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
           echo "✅ /tail POST passed"
