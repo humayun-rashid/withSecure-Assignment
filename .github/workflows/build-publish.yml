@@ -227,7 +227,7 @@ jobs:
         run: |
           URL="http://${{ needs.deploy.outputs.alb_dns }}/v1/lists/tail?list=foo,bar,baz&count=1"
           RESPONSE=$(curl -s "$URL")
-          EXPECTED='{"result":["bar","baz"]}'
+          EXPECTED='{"result":["baz"]}'
           [ "$RESPONSE" = "$EXPECTED" ] || (echo "❌ Expected $EXPECTED, got $RESPONSE" && exit 1)
           echo "✅ /tail GET passed"
 
