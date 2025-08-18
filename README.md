@@ -17,6 +17,11 @@ It demonstrates cloud-native backend design, infrastructure as code, and CI/CD a
 * 👉 [Backend Documentation](listservice-backend/README.md)
 * 👉 [Infrastructure Documentation](infrastructure/README.md)
 
+#### 🔗 Live CI Environment (AWS ECS Fargate, eu-central-1)
+
+* **Health check** → [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/health](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/health)
+* **Swagger UI** → [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/docs](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/docs)
+* **ReDoc** → [http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/redoc](http://listservice-ci-alb-1980907909.eu-central-1.elb.amazonaws.com/redoc)
 ---
 
 ## 📑 Table of Contents
@@ -42,10 +47,7 @@ It demonstrates cloud-native backend design, infrastructure as code, and CI/CD a
   * `tail` → last *N* items
 * Fully **dockerized** and tested with **local smoke-test scripts**.
 * CI/CD ensures images are built, pushed, deployed, and validated automatically.
-* Built-in API docs:
 
-  * Swagger UI → `http://<ALB_DNS>/docs`
-  * ReDoc → `http://<ALB_DNS>/redoc`
 
 👉 [Backend Documentation](listservice-backend/README.md)
 
