@@ -69,20 +69,20 @@ jobs:
       # ---------- PLAN ----------
       - name: Terraform Plan
         if: ${{ github.event_name == 'pull_request' || github.event.inputs.action == 'plan' || github.event_name == 'push' }}
-        run: terraform plan -no-color -out=tf.plan -var-file="${{ env.TF_VARS_FILE }}"
+        run: terraform plan -no-color -var-file="${{ env.TF_VARS_FILE }}"
 
       - name: Upload Plan artifact (PR only)
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: tf-plan-ci
-          path: ${{ env.TF_ENV_DIR }}/tf.plan
+          path: ${{ env.TF_ENV_DIR }}/terraform.tfstate
           retention-days: 7
 
       # ---------- APPLY ----------
       - name: Terraform Apply (push to main or manual apply)
         if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.action == 'apply' }}
-        run: terraform apply -auto-approve tf.plan
+        run: terraform apply -auto-approve -var-file="${{ env.TF_VARS_FILE }}"
 
       # Optional quick smoke test
       - name: Smoke test /health
