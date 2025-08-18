@@ -91,7 +91,7 @@ We use **GitHub Actions** for both application delivery and infrastructure manag
 
 #### 🟦 Application Workflow
 
-* **[Build, Publish, Deploy & Test (ECS)](.github/workflows/build-publish-deploy-test.yml)**
+* **[Build, Publish, Deploy & Test (ECS)](.github/workflows/build-publish.yml)**
   A single pipeline that:
 
   1. **Builds & pushes** the Docker image to ECR (tags: SHA, `ci`, `latest`, branch).
@@ -172,10 +172,9 @@ ASCII job timeline:
 
 * [Backend Documentation](listservice-backend/README.md)
 * [Infrastructure Documentation](infrastructure/README.md)
-* [Build, Publish, Deploy & Test Workflow](.github/workflows/build-publish-deploy-test.yml)
+* [Build, Publish, Deploy & Test Workflow](.github/workflows/build-publish.yml)
 * [Infra CI Workflow](.github/workflows/infra-ci.yml)
 * [Infra GLOBAL Workflow](.github/workflows/infra-global.yml)
-
 ---
 
 ## 🛠 Tech Stack
